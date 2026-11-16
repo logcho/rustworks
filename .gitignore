@@ -1,0 +1,6 @@
+target/
+*.stl
+*.step
+*.obj
+*.rwpart.tmp
+.DS_Store

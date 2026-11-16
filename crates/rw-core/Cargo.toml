@@ -1,0 +1,12 @@
+[package]
+name = "rw-core"
+version.workspace = true
+edition.workspace = true
+description = "RustWorks part document, feature tree and regeneration engine"
+
+[dependencies]
+rw-sketch = { path = "../rw-sketch" }
+rw-kernel = { path = "../rw-kernel" }
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true

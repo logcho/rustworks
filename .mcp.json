@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "rustworks": {
+      "command": "./target/release/rustworks-mcp",
+      "args": []
+    }
+  }
+}

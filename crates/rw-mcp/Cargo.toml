@@ -1,0 +1,17 @@
+[package]
+name = "rw-mcp"
+version.workspace = true
+edition.workspace = true
+description = "RustWorks MCP server: AI-driven parametric CAD over the Model Context Protocol"
+
+[[bin]]
+name = "rustworks-mcp"
+path = "src/main.rs"
+
+[dependencies]
+rw-core = { path = "../rw-core" }
+rw-render = { path = "../rw-render" }
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+libc = "0.2"

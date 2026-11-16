@@ -1,0 +1,226 @@
+{
+  "format": "rustworks-part/1",
+  "name": "enclosure",
+  "units": "mm",
+  "parameters": {},
+  "features": [
+    {
+      "id": "f1",
+      "name": "Bottom",
+      "type": "sketch",
+      "plane": "top",
+      "entities": [
+        {
+          "type": "point",
+          "id": "p1",
+          "x": -40.0,
+          "y": -25.0
+        },
+        {
+          "type": "point",
+          "id": "p2",
+          "x": 40.0,
+          "y": -25.0
+        },
+        {
+          "type": "line",
+          "id": "l3",
+          "start": "p1",
+          "end": "p2"
+        },
+        {
+          "type": "point",
+          "id": "p4",
+          "x": 40.0,
+          "y": 25.0
+        },
+        {
+          "type": "line",
+          "id": "l5",
+          "start": "p2",
+          "end": "p4"
+        },
+        {
+          "type": "point",
+          "id": "p6",
+          "x": -40.0,
+          "y": 25.0
+        },
+        {
+          "type": "line",
+          "id": "l7",
+          "start": "p4",
+          "end": "p6"
+        },
+        {
+          "type": "line",
+          "id": "l8",
+          "start": "p6",
+          "end": "p1"
+        }
+      ],
+      "constraints": [
+        {
+          "type": "horizontal",
+          "line": "l3"
+        },
+        {
+          "type": "horizontal",
+          "line": "l7"
+        },
+        {
+          "type": "vertical",
+          "line": "l5"
+        },
+        {
+          "type": "vertical",
+          "line": "l8"
+        }
+      ]
+    },
+    {
+      "id": "f2",
+      "name": "TopProfile",
+      "type": "sketch",
+      "plane": {
+        "base": "top",
+        "offset": 40.0
+      },
+      "entities": [
+        {
+          "type": "point",
+          "id": "p1",
+          "x": -30.0,
+          "y": -18.0
+        },
+        {
+          "type": "point",
+          "id": "p2",
+          "x": 30.0,
+          "y": -18.0
+        },
+        {
+          "type": "line",
+          "id": "l3",
+          "start": "p1",
+          "end": "p2"
+        },
+        {
+          "type": "point",
+          "id": "p4",
+          "x": 30.0,
+          "y": 18.0
+        },
+        {
+          "type": "line",
+          "id": "l5",
+          "start": "p2",
+          "end": "p4"
+        },
+        {
+          "type": "point",
+          "id": "p6",
+          "x": -30.0,
+          "y": 18.0
+        },
+        {
+          "type": "line",
+          "id": "l7",
+          "start": "p4",
+          "end": "p6"
+        },
+        {
+          "type": "line",
+          "id": "l8",
+          "start": "p6",
+          "end": "p1"
+        }
+      ],
+      "constraints": [
+        {
+          "type": "horizontal",
+          "line": "l3"
+        },
+        {
+          "type": "horizontal",
+          "line": "l7"
+        },
+        {
+          "type": "vertical",
+          "line": "l5"
+        },
+        {
+          "type": "vertical",
+          "line": "l8"
+        }
+      ]
+    },
+    {
+      "id": "f3",
+      "name": "Body",
+      "type": "loft",
+      "sketches": [
+        "f1",
+        "f2"
+      ],
+      "op": "boss"
+    },
+    {
+      "id": "f4",
+      "name": "Shell1",
+      "type": "shell",
+      "open_faces": [
+        [
+          0.0,
+          40.0,
+          0.0
+        ]
+      ],
+      "thickness": 2.0
+    },
+    {
+      "id": "f5",
+      "name": "SideRounds",
+      "type": "fillet",
+      "edges": [
+        {
+          "at": [
+            35.0,
+            20.0,
+            21.5
+          ],
+          "kind": "curve",
+          "length": 41.821
+        },
+        {
+          "at": [
+            -35.0,
+            20.0,
+            21.5
+          ],
+          "kind": "curve",
+          "length": 41.821
+        },
+        {
+          "at": [
+            35.0,
+            20.0,
+            -21.5
+          ],
+          "kind": "curve",
+          "length": 41.821
+        },
+        {
+          "at": [
+            -35.0,
+            20.0,
+            -21.5
+          ],
+          "kind": "curve",
+          "length": 41.821
+        }
+      ],
+      "radius": 3.0
+    }
+  ]
+}

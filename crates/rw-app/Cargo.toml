@@ -1,0 +1,20 @@
+[package]
+name = "rw-app"
+version.workspace = true
+edition.workspace = true
+description = "RustWorks desktop CAD application"
+
+[[bin]]
+name = "rustworks"
+path = "src/main.rs"
+
+[dependencies]
+rw-core = { path = "../rw-core" }
+serde_json.workspace = true
+anyhow.workspace = true
+glam.workspace = true
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "persistence"] }
+egui-wgpu = "0.37"
+egui = "0.37"
+bytemuck = { version = "1", features = ["derive"] }
+rfd = "0.15"

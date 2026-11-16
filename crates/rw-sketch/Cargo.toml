@@ -1,0 +1,10 @@
+[package]
+name = "rw-sketch"
+version.workspace = true
+edition.workspace = true
+description = "2D parametric sketch model, expression evaluator and geometric constraint solver"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

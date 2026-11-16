@@ -1,0 +1,21 @@
+[package]
+name = "rw-kernel"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = ["occt"]
+occt = ["dep:opencascade-sys", "dep:cxx"]
+truck = ["dep:truck-modeling", "dep:truck-shapeops", "dep:truck-meshalgo", "dep:truck-stepio", "dep:truck-topology"]
+
+[dependencies]
+opencascade-sys = { version = "0.3", optional = true, features = ["builtin"] }
+cxx = { version = "1", optional = true }
+truck-modeling = { workspace = true, optional = true }
+truck-shapeops = { workspace = true, optional = true }
+truck-meshalgo = { workspace = true, optional = true }
+truck-stepio = { workspace = true, optional = true }
+truck-topology = { workspace = true, optional = true }
+anyhow.workspace = true
+rw-sketch = { path = "../rw-sketch" }
+serde.workspace = true

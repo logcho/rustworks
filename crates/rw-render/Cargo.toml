@@ -1,0 +1,10 @@
+[package]
+name = "rw-render"
+version.workspace = true
+edition.workspace = true
+description = "Headless software renderer for RustWorks parts (PNG previews)"
+
+[dependencies]
+rw-kernel = { path = "../rw-kernel" }
+serde.workspace = true
+png = "0.18"
