@@ -386,3 +386,40 @@ fn assembly_mates_dof_interference() {
     assert!((v - (16000.0 - PI * 250.0 + PI * 36.0 * 30.0)).abs() < 1e-3, "{v}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn pattern_of_mixed_pattern_keeps_cuts() {
+    // plate with a boss+hole cell, patterned (A), then A patterned again (B)
+    let mut p = Part::new("grid");
+    let mut sk = Sketch::default();
+    sk.add_rectangle([0.0, 0.0], [100.0, 40.0]);
+    let s = sketch_feature(&mut p, PlaneRef::Named(StdPlane::Top), sk);
+    push(&mut p, "Extrude", extrude(&s, 2.0, EndCondition::Blind, Op::Boss));
+    let mut sk = Sketch::default();
+    sk.add_rectangle([4.0, 4.0], [8.0, 8.0]);
+    let s = sketch_feature(&mut p, PlaneRef::Offset { base: StdPlane::Top, offset: 2.0.into() }, sk);
+    let boss = push(&mut p, "Extrude", extrude(&s, 1.0, EndCondition::Blind, Op::Boss));
+    let hole = push(
+        &mut p,
+        "Hole",
+        FeatureKind::Hole(Hole { plane: PlaneRef::Offset { base: StdPlane::Top, offset: 3.0.into() }, points: vec![[15.0, 6.0]], diameter: 4.0.into(), depth: None, counterbore: None, countersink: None }),
+    );
+    let a = push(
+        &mut p,
+        "LPattern",
+        FeatureKind::LinearPattern(LinearPattern { features: vec![boss, hole], direction: [1.0, 0.0, 0.0], spacing: 20.0.into(), count: 3.0.into(), direction2: None, spacing2: None, count2: None }),
+    );
+    push(
+        &mut p,
+        "LPattern",
+        FeatureKind::LinearPattern(LinearPattern { features: vec![a], direction: [0.0, 0.0, -1.0], spacing: 20.0.into(), count: 2.0.into(), direction2: None, spacing2: None, count2: None }),
+    );
+    let out = Regenerator::new().regenerate(&p);
+    assert!(out.errors().is_empty(), "{:?}", out.errors());
+    // 1 seed + 2 (A) + 2 (B copies of A's instances) = 5 cells of each
+    let hole_v = PI * 4.0 * 3.0; // Ø4 through plate+nothing: holes are in the 2 mm plate at x=15 (no boss there)
+    let expected = 100.0 * 40.0 * 2.0 + 5.0 * 16.0 - 5.0 * PI * 4.0 * 2.0;
+    let _ = hole_v;
+    let v = out.mass.unwrap().volume;
+    assert!((v - expected).abs() < 1e-3, "volume {v} vs {expected} (holes missing from the second pattern?)");
+}

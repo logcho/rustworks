@@ -1,0 +1,28 @@
+{
+  "format": "rustworks-drawing/1",
+  "name": "GRATER-001",
+  "source": "grater.rwpart",
+  "sheet": "a3",
+  "projection": "third_angle",
+  "views": [
+    {
+      "type": "front"
+    },
+    {
+      "type": "top"
+    },
+    {
+      "type": "right"
+    },
+    {
+      "type": "iso"
+    }
+  ],
+  "dimensions": true,
+  "title": {
+    "title": "PADDLE CHEESE GRATER",
+    "drawn_by": "Claude",
+    "material": "Stainless steel 304",
+    "notes": "BREAK SHARP EDGES ON HANDLE\nTEETH: 1.2 MM RAISED LIPS, ONE PER HOLE"
+  }
+}

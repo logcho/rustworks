@@ -33,7 +33,9 @@ impl Tool {
 #[derive(Clone, Default)]
 struct State {
     body: Option<Solid>,
-    tools: HashMap<String, Tool>,
+    /// Tool bodies each feature applied, in order (patterns of mixed boss/cut
+    /// features record one tool per operation), for patterning and mirroring.
+    tools: HashMap<String, Vec<Tool>>,
     sketches: HashMap<String, SolvedSketch>,
     /// Re-snapped edge reference points per feature (written back to the doc).
     snaps: HashMap<String, Vec<EdgeRef>>,
@@ -291,6 +293,17 @@ fn num(scope: &Scope, v: &Value, what: &str) -> Result<f64> {
 }
 
 fn combine(state: &mut State, tool: &Tool, fs: &mut FeatureStatus) -> Result<()> {
+    // Many tool bodies (patterns, multi-profile sketches): one boolean against
+    // their compound is far faster than one boolean per body.
+    if tool.solids.len() > 2 && rw_kernel::BACKEND.starts_with("OpenCASCADE") {
+        if let Some(b) = &state.body {
+            let all = rw_kernel::compound(&tool.solids);
+            let scale = rw_kernel::scale_of(b);
+            let op = if tool.op == Op::Cut { BoolOp::Subtract } else { BoolOp::Union };
+            state.body = Some(rw_kernel::boolean(b, &all, op, scale)?);
+            return Ok(());
+        }
+    }
     for (i, s) in tool.solids.iter().enumerate() {
         match (&state.body, tool.op) {
             (None, Op::Boss) => state.body = Some(s.clone()),
@@ -398,7 +411,7 @@ fn apply(state: &mut State, f: &Feature, scope: &Scope, fs: &mut FeatureStatus) 
             }
             let tool = Tool { solids, alts, op: e.op };
             combine(state, &tool, fs)?;
-            state.tools.insert(f.id.clone(), tool);
+            state.tools.insert(f.id.clone(), vec![tool]);
         }
         FeatureKind::Revolve(r) => {
             let sk = sketch_of(state, &r.sketch)?.clone();
@@ -425,7 +438,7 @@ fn apply(state: &mut State, f: &Feature, scope: &Scope, fs: &mut FeatureStatus) 
             }
             let tool = Tool::plain(solids, r.op);
             combine(state, &tool, fs)?;
-            state.tools.insert(f.id.clone(), tool);
+            state.tools.insert(f.id.clone(), vec![tool]);
         }
         FeatureKind::Hole(h) => {
             let plane = resolve_plane_in(&h.plane, scope, &state.planes)?;
@@ -494,7 +507,7 @@ fn apply(state: &mut State, f: &Feature, scope: &Scope, fs: &mut FeatureStatus) 
             }
             let tool = Tool::plain(solids, Op::Cut);
             combine(state, &tool, fs)?;
-            state.tools.insert(f.id.clone(), tool);
+            state.tools.insert(f.id.clone(), vec![tool]);
         }
         FeatureKind::LinearPattern(p) => {
             let count = num(scope, &p.count, "count")?.round().max(1.0) as usize;
@@ -564,13 +577,13 @@ fn apply(state: &mut State, f: &Feature, scope: &Scope, fs: &mut FeatureStatus) 
             }
             let tool = Tool::plain(vec![rw_kernel::loft(&sections)?], l.op);
             combine(state, &tool, fs)?;
-            state.tools.insert(f.id.clone(), tool);
+            state.tools.insert(f.id.clone(), vec![tool]);
         }
         FeatureKind::Import(im) => {
             let solid = rw_kernel::read_step(std::path::Path::new(&im.path))?;
             let tool = Tool::plain(vec![solid], im.op);
             combine(state, &tool, fs)?;
-            state.tools.insert(f.id.clone(), tool);
+            state.tools.insert(f.id.clone(), vec![tool]);
         }
         FeatureKind::Plane(rp) => {
             let pl = ref_plane(rp, scope, &state.planes)?;
@@ -593,7 +606,7 @@ fn apply(state: &mut State, f: &Feature, scope: &Scope, fs: &mut FeatureStatus) 
             }
             let tool = Tool::plain(solids, sw.op);
             combine(state, &tool, fs)?;
-            state.tools.insert(f.id.clone(), tool);
+            state.tools.insert(f.id.clone(), vec![tool]);
         }
         FeatureKind::Draft(d) => {
             let body = state.body.clone().ok_or_else(|| anyhow!("nothing to draft"))?;
@@ -611,7 +624,7 @@ fn apply(state: &mut State, f: &Feature, scope: &Scope, fs: &mut FeatureStatus) 
                 let body = state.body.clone().ok_or_else(|| anyhow!("nothing to mirror"))?;
                 let tool = Tool::plain(vec![rw_kernel::transform(&body, &x)], Op::Boss);
                 combine(state, &tool, fs)?;
-                state.tools.insert(f.id.clone(), tool);
+                state.tools.insert(f.id.clone(), vec![tool]);
             } else {
                 instance(state, f, fs, &m.features, &[x])?;
             }
@@ -768,33 +781,35 @@ fn instance(state: &mut State, f: &Feature, fs: &mut FeatureStatus, features: &[
     if features.is_empty() {
         bail!("no features selected to pattern");
     }
-    let mut recorded: Option<Tool> = None;
+    let mut recorded: Vec<Tool> = vec![];
     for fid in features {
-        let src = state
+        let srcs = state
             .tools
             .get(fid)
             .cloned()
             .ok_or_else(|| anyhow!("feature `{fid}` has no geometry to pattern (sketch, failed or suppressed?)"))?;
-        let mut copy = Tool { solids: vec![], alts: vec![], op: src.op };
-        for x in xforms {
-            for (s, a) in src.solids.iter().zip(&src.alts) {
-                copy.solids.push(rw_kernel::transform(s, x));
-                copy.alts.push(a.as_ref().map(|a| rw_kernel::transform(a, x)));
+        for src in srcs {
+            let mut copy = Tool { solids: vec![], alts: vec![], op: src.op };
+            for x in xforms {
+                for (s, a) in src.solids.iter().zip(&src.alts) {
+                    copy.solids.push(rw_kernel::transform(s, x));
+                    copy.alts.push(a.as_ref().map(|a| rw_kernel::transform(a, x)));
+                }
             }
-        }
-        combine(state, &copy, fs)?;
-        // Record as a tool so patterns can themselves be mirrored/patterned.
-        match &mut recorded {
-            None => recorded = Some(copy),
-            Some(r) if r.op == copy.op => {
-                r.solids.extend(copy.solids);
-                r.alts.extend(copy.alts);
+            combine(state, &copy, fs)?;
+            // Record so patterns can themselves be mirrored/patterned; keep
+            // boss and cut tools separate and in order.
+            match recorded.last_mut() {
+                Some(r) if r.op == copy.op => {
+                    r.solids.extend(copy.solids);
+                    r.alts.extend(copy.alts);
+                }
+                _ => recorded.push(copy),
             }
-            _ => {}
         }
     }
-    if let Some(r) = recorded {
-        state.tools.insert(f.id.clone(), r);
+    if !recorded.is_empty() {
+        state.tools.insert(f.id.clone(), recorded);
     }
     Ok(())
 }

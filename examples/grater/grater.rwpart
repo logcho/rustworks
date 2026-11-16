@@ -1,0 +1,1086 @@
+{
+  "format": "rustworks-part/1",
+  "name": "grater",
+  "units": "mm",
+  "parameters": {
+    "hole_d": 4.5,
+    "pitch_x": 12.0,
+    "pitch_y": 10.0,
+    "rim_h": 3.0,
+    "t": 2.0
+  },
+  "features": [
+    {
+      "id": "f1",
+      "name": "Outline",
+      "type": "sketch",
+      "plane": "top",
+      "entities": [
+        {
+          "type": "line",
+          "id": "l3",
+          "start": "p17",
+          "end": "p20"
+        },
+        {
+          "type": "line",
+          "id": "l5",
+          "start": "p21",
+          "end": "p23"
+        },
+        {
+          "type": "line",
+          "id": "l7",
+          "start": "p24",
+          "end": "p26"
+        },
+        {
+          "type": "line",
+          "id": "l9",
+          "start": "p27",
+          "end": "p29"
+        },
+        {
+          "type": "line",
+          "id": "l11",
+          "start": "p30",
+          "end": "p32"
+        },
+        {
+          "type": "line",
+          "id": "l13",
+          "start": "p33",
+          "end": "p35"
+        },
+        {
+          "type": "line",
+          "id": "l15",
+          "start": "p36",
+          "end": "p38"
+        },
+        {
+          "type": "line",
+          "id": "l16",
+          "start": "p39",
+          "end": "p18"
+        },
+        {
+          "type": "point",
+          "id": "p17",
+          "x": -85.0,
+          "y": -38.0
+        },
+        {
+          "type": "point",
+          "id": "p18",
+          "x": -95.0,
+          "y": -28.0
+        },
+        {
+          "type": "point",
+          "id": "p19",
+          "x": -85.0,
+          "y": -28.0
+        },
+        {
+          "type": "arc",
+          "id": "a20",
+          "center": "p19",
+          "start": "p18",
+          "end": "p17"
+        },
+        {
+          "type": "point",
+          "id": "p20",
+          "x": 89.0,
+          "y": -38.0
+        },
+        {
+          "type": "point",
+          "id": "p21",
+          "x": 98.6,
+          "y": -33.2
+        },
+        {
+          "type": "point",
+          "id": "p22",
+          "x": 89.0,
+          "y": -26.0
+        },
+        {
+          "type": "arc",
+          "id": "a23",
+          "center": "p22",
+          "start": "p20",
+          "end": "p21"
+        },
+        {
+          "type": "point",
+          "id": "p23",
+          "x": 108.27047865466996,
+          "y": -20.30602846044004
+        },
+        {
+          "type": "point",
+          "id": "p24",
+          "x": 112.88109937427176,
+          "y": -17.90901791449668
+        },
+        {
+          "type": "point",
+          "id": "p25",
+          "x": 113.07047865466996,
+          "y": -23.90602846044004
+        },
+        {
+          "type": "arc",
+          "id": "a26",
+          "center": "p25",
+          "start": "p24",
+          "end": "p23"
+        },
+        {
+          "type": "point",
+          "id": "p26",
+          "x": 199.1893792803982,
+          "y": -15.18349328588216
+        },
+        {
+          "type": "point",
+          "id": "p27",
+          "x": 205.0,
+          "y": -9.186482739938803
+        },
+        {
+          "type": "point",
+          "id": "p28",
+          "x": 199.0,
+          "y": -9.186482739938803
+        },
+        {
+          "type": "arc",
+          "id": "a29",
+          "center": "p28",
+          "start": "p26",
+          "end": "p27"
+        },
+        {
+          "type": "point",
+          "id": "p29",
+          "x": 205.0,
+          "y": 9.186482739938803
+        },
+        {
+          "type": "point",
+          "id": "p30",
+          "x": 199.1893792803982,
+          "y": 15.18349328588216
+        },
+        {
+          "type": "point",
+          "id": "p31",
+          "x": 199.0,
+          "y": 9.186482739938803
+        },
+        {
+          "type": "arc",
+          "id": "a32",
+          "center": "p31",
+          "start": "p29",
+          "end": "p30"
+        },
+        {
+          "type": "point",
+          "id": "p32",
+          "x": 112.88109937427176,
+          "y": 17.90901791449668
+        },
+        {
+          "type": "point",
+          "id": "p33",
+          "x": 108.27047865466996,
+          "y": 20.30602846044004
+        },
+        {
+          "type": "point",
+          "id": "p34",
+          "x": 113.07047865466996,
+          "y": 23.90602846044004
+        },
+        {
+          "type": "arc",
+          "id": "a35",
+          "center": "p34",
+          "start": "p33",
+          "end": "p32"
+        },
+        {
+          "type": "point",
+          "id": "p35",
+          "x": 98.6,
+          "y": 33.2
+        },
+        {
+          "type": "point",
+          "id": "p36",
+          "x": 89.0,
+          "y": 38.0
+        },
+        {
+          "type": "point",
+          "id": "p37",
+          "x": 89.0,
+          "y": 26.0
+        },
+        {
+          "type": "arc",
+          "id": "a38",
+          "center": "p37",
+          "start": "p35",
+          "end": "p36"
+        },
+        {
+          "type": "point",
+          "id": "p38",
+          "x": -85.0,
+          "y": 38.0
+        },
+        {
+          "type": "point",
+          "id": "p39",
+          "x": -95.0,
+          "y": 28.0
+        },
+        {
+          "type": "point",
+          "id": "p40",
+          "x": -85.0,
+          "y": 28.0
+        },
+        {
+          "type": "arc",
+          "id": "a41",
+          "center": "p40",
+          "start": "p38",
+          "end": "p39"
+        }
+      ],
+      "constraints": [
+        {
+          "type": "tangent",
+          "a": "l3",
+          "b": "a20"
+        },
+        {
+          "type": "tangent",
+          "a": "l16",
+          "b": "a20"
+        },
+        {
+          "type": "radius",
+          "entity": "a20",
+          "value": 10.0
+        },
+        {
+          "type": "tangent",
+          "a": "l3",
+          "b": "a23"
+        },
+        {
+          "type": "tangent",
+          "a": "l5",
+          "b": "a23"
+        },
+        {
+          "type": "radius",
+          "entity": "a23",
+          "value": 12.0
+        },
+        {
+          "type": "tangent",
+          "a": "l5",
+          "b": "a26"
+        },
+        {
+          "type": "tangent",
+          "a": "l7",
+          "b": "a26"
+        },
+        {
+          "type": "radius",
+          "entity": "a26",
+          "value": 6.0
+        },
+        {
+          "type": "tangent",
+          "a": "l7",
+          "b": "a29"
+        },
+        {
+          "type": "tangent",
+          "a": "l9",
+          "b": "a29"
+        },
+        {
+          "type": "radius",
+          "entity": "a29",
+          "value": 6.0
+        },
+        {
+          "type": "tangent",
+          "a": "l9",
+          "b": "a32"
+        },
+        {
+          "type": "tangent",
+          "a": "l11",
+          "b": "a32"
+        },
+        {
+          "type": "radius",
+          "entity": "a32",
+          "value": 6.0
+        },
+        {
+          "type": "tangent",
+          "a": "l11",
+          "b": "a35"
+        },
+        {
+          "type": "tangent",
+          "a": "l13",
+          "b": "a35"
+        },
+        {
+          "type": "radius",
+          "entity": "a35",
+          "value": 6.0
+        },
+        {
+          "type": "tangent",
+          "a": "l13",
+          "b": "a38"
+        },
+        {
+          "type": "tangent",
+          "a": "l15",
+          "b": "a38"
+        },
+        {
+          "type": "radius",
+          "entity": "a38",
+          "value": 12.0
+        },
+        {
+          "type": "tangent",
+          "a": "l15",
+          "b": "a41"
+        },
+        {
+          "type": "tangent",
+          "a": "l16",
+          "b": "a41"
+        },
+        {
+          "type": "radius",
+          "entity": "a41",
+          "value": 10.0
+        }
+      ]
+    },
+    {
+      "id": "f2",
+      "name": "Plate",
+      "type": "extrude",
+      "sketch": "f1",
+      "depth": "t",
+      "op": "boss"
+    },
+    {
+      "id": "f3",
+      "name": "PlateTop",
+      "type": "plane",
+      "base": "top",
+      "offset": "t"
+    },
+    {
+      "id": "f4",
+      "name": "RimSketch",
+      "type": "sketch",
+      "plane": "f3",
+      "entities": [
+        {
+          "type": "line",
+          "id": "l3",
+          "start": "p9",
+          "end": "p12"
+        },
+        {
+          "type": "line",
+          "id": "l5",
+          "start": "p13",
+          "end": "p15"
+        },
+        {
+          "type": "line",
+          "id": "l7",
+          "start": "p16",
+          "end": "p18"
+        },
+        {
+          "type": "line",
+          "id": "l8",
+          "start": "p19",
+          "end": "p10"
+        },
+        {
+          "type": "point",
+          "id": "p9",
+          "x": -84.0,
+          "y": -36.0
+        },
+        {
+          "type": "point",
+          "id": "p10",
+          "x": -93.0,
+          "y": -27.0
+        },
+        {
+          "type": "point",
+          "id": "p11",
+          "x": -84.0,
+          "y": -27.0
+        },
+        {
+          "type": "arc",
+          "id": "a12",
+          "center": "p11",
+          "start": "p10",
+          "end": "p9"
+        },
+        {
+          "type": "point",
+          "id": "p12",
+          "x": 84.0,
+          "y": -36.0
+        },
+        {
+          "type": "point",
+          "id": "p13",
+          "x": 93.0,
+          "y": -27.0
+        },
+        {
+          "type": "point",
+          "id": "p14",
+          "x": 84.0,
+          "y": -27.0
+        },
+        {
+          "type": "arc",
+          "id": "a15",
+          "center": "p14",
+          "start": "p12",
+          "end": "p13"
+        },
+        {
+          "type": "point",
+          "id": "p15",
+          "x": 93.0,
+          "y": 27.0
+        },
+        {
+          "type": "point",
+          "id": "p16",
+          "x": 84.0,
+          "y": 36.0
+        },
+        {
+          "type": "point",
+          "id": "p17",
+          "x": 84.0,
+          "y": 27.0
+        },
+        {
+          "type": "arc",
+          "id": "a18",
+          "center": "p17",
+          "start": "p15",
+          "end": "p16"
+        },
+        {
+          "type": "point",
+          "id": "p18",
+          "x": -84.0,
+          "y": 36.0
+        },
+        {
+          "type": "point",
+          "id": "p19",
+          "x": -93.0,
+          "y": 27.0
+        },
+        {
+          "type": "point",
+          "id": "p20",
+          "x": -84.0,
+          "y": 27.0
+        },
+        {
+          "type": "arc",
+          "id": "a21",
+          "center": "p20",
+          "start": "p18",
+          "end": "p19"
+        },
+        {
+          "type": "point",
+          "id": "p21",
+          "x": -84.0,
+          "y": -30.0
+        },
+        {
+          "type": "point",
+          "id": "p22",
+          "x": 84.0,
+          "y": -30.0
+        },
+        {
+          "type": "line",
+          "id": "l23",
+          "start": "p21",
+          "end": "p22"
+        },
+        {
+          "type": "point",
+          "id": "p24",
+          "x": 87.0,
+          "y": -27.0
+        },
+        {
+          "type": "arc",
+          "id": "a25",
+          "center": "p14",
+          "start": "p22",
+          "end": "p24"
+        },
+        {
+          "type": "point",
+          "id": "p26",
+          "x": 87.0,
+          "y": 27.0
+        },
+        {
+          "type": "line",
+          "id": "l27",
+          "start": "p24",
+          "end": "p26"
+        },
+        {
+          "type": "point",
+          "id": "p28",
+          "x": 84.0,
+          "y": 30.0
+        },
+        {
+          "type": "arc",
+          "id": "a29",
+          "center": "p17",
+          "start": "p26",
+          "end": "p28"
+        },
+        {
+          "type": "point",
+          "id": "p30",
+          "x": -84.0,
+          "y": 30.0
+        },
+        {
+          "type": "line",
+          "id": "l31",
+          "start": "p28",
+          "end": "p30"
+        },
+        {
+          "type": "point",
+          "id": "p32",
+          "x": -87.0,
+          "y": 27.0
+        },
+        {
+          "type": "arc",
+          "id": "a33",
+          "center": "p20",
+          "start": "p30",
+          "end": "p32"
+        },
+        {
+          "type": "point",
+          "id": "p34",
+          "x": -87.0,
+          "y": -27.0
+        },
+        {
+          "type": "line",
+          "id": "l35",
+          "start": "p32",
+          "end": "p34"
+        },
+        {
+          "type": "arc",
+          "id": "a36",
+          "center": "p11",
+          "start": "p34",
+          "end": "p21"
+        }
+      ],
+      "constraints": [
+        {
+          "type": "horizontal",
+          "line": "l3"
+        },
+        {
+          "type": "horizontal",
+          "line": "l7"
+        },
+        {
+          "type": "vertical",
+          "line": "l5"
+        },
+        {
+          "type": "vertical",
+          "line": "l8"
+        },
+        {
+          "type": "tangent",
+          "a": "l3",
+          "b": "a12"
+        },
+        {
+          "type": "tangent",
+          "a": "l8",
+          "b": "a12"
+        },
+        {
+          "type": "radius",
+          "entity": "a12",
+          "value": 9.0
+        },
+        {
+          "type": "tangent",
+          "a": "l3",
+          "b": "a15"
+        },
+        {
+          "type": "tangent",
+          "a": "l5",
+          "b": "a15"
+        },
+        {
+          "type": "radius",
+          "entity": "a15",
+          "value": 9.0
+        },
+        {
+          "type": "tangent",
+          "a": "l5",
+          "b": "a18"
+        },
+        {
+          "type": "tangent",
+          "a": "l7",
+          "b": "a18"
+        },
+        {
+          "type": "radius",
+          "entity": "a18",
+          "value": 9.0
+        },
+        {
+          "type": "tangent",
+          "a": "l7",
+          "b": "a21"
+        },
+        {
+          "type": "tangent",
+          "a": "l8",
+          "b": "a21"
+        },
+        {
+          "type": "radius",
+          "entity": "a21",
+          "value": 9.0
+        }
+      ]
+    },
+    {
+      "id": "f5",
+      "name": "Rim",
+      "type": "extrude",
+      "sketch": "f4",
+      "depth": "rim_h",
+      "op": "boss"
+    },
+    {
+      "id": "f6",
+      "name": "GripSketch",
+      "type": "sketch",
+      "plane": "f3",
+      "entities": [
+        {
+          "type": "point",
+          "id": "p1",
+          "x": 125.0,
+          "y": -10.0
+        },
+        {
+          "type": "point",
+          "id": "p2",
+          "x": 180.0,
+          "y": -10.0
+        },
+        {
+          "type": "line",
+          "id": "l3",
+          "start": "p1",
+          "end": "p2"
+        },
+        {
+          "type": "point",
+          "id": "p4",
+          "x": 180.0,
+          "y": 0.0
+        },
+        {
+          "type": "point",
+          "id": "p5",
+          "x": 180.0,
+          "y": 10.0
+        },
+        {
+          "type": "arc",
+          "id": "a6",
+          "center": "p4",
+          "start": "p2",
+          "end": "p5"
+        },
+        {
+          "type": "point",
+          "id": "p7",
+          "x": 125.0,
+          "y": 10.0
+        },
+        {
+          "type": "line",
+          "id": "l8",
+          "start": "p5",
+          "end": "p7"
+        },
+        {
+          "type": "point",
+          "id": "p9",
+          "x": 125.0,
+          "y": 0.0
+        },
+        {
+          "type": "arc",
+          "id": "a10",
+          "center": "p9",
+          "start": "p7",
+          "end": "p1"
+        }
+      ],
+      "constraints": [
+        {
+          "type": "tangent",
+          "a": "l3",
+          "b": "a6"
+        },
+        {
+          "type": "tangent",
+          "a": "l8",
+          "b": "a10"
+        },
+        {
+          "type": "equal",
+          "a": "a6",
+          "b": "a10"
+        }
+      ]
+    },
+    {
+      "id": "f7",
+      "name": "Grip",
+      "type": "extrude",
+      "sketch": "f6",
+      "depth": 4.0,
+      "op": "boss"
+    },
+    {
+      "id": "f8",
+      "name": "HangHole",
+      "type": "hole",
+      "plane": {
+        "base": "top",
+        "offset": 20.0
+      },
+      "points": [
+        [
+          192.0,
+          0.0
+        ]
+      ],
+      "diameter": 8.0
+    },
+    {
+      "id": "f9",
+      "name": "ToothSketch",
+      "type": "sketch",
+      "plane": "f3",
+      "entities": [
+        {
+          "type": "point",
+          "id": "p1",
+          "x": -81.0,
+          "y": -27.5
+        },
+        {
+          "type": "arc",
+          "id": "c2",
+          "center": "p1",
+          "start": "p5",
+          "end": "p6"
+        },
+        {
+          "type": "point",
+          "id": "p3",
+          "x": -81.0,
+          "y": -25.1
+        },
+        {
+          "type": "arc",
+          "id": "c4",
+          "center": "p3",
+          "start": "p7",
+          "end": "p8"
+        },
+        {
+          "type": "point",
+          "id": "p5",
+          "x": -84.39411254969542,
+          "y": -26.3
+        },
+        {
+          "type": "point",
+          "id": "p6",
+          "x": -77.60588745030458,
+          "y": -26.3
+        },
+        {
+          "type": "point",
+          "id": "p7",
+          "x": -84.39411254969542,
+          "y": -26.3
+        },
+        {
+          "type": "point",
+          "id": "p8",
+          "x": -77.60588745030458,
+          "y": -26.3
+        }
+      ],
+      "constraints": [
+        {
+          "type": "point_on_circle",
+          "point": "p5",
+          "circle": "c4"
+        },
+        {
+          "type": "point_on_circle",
+          "point": "p6",
+          "circle": "c4"
+        },
+        {
+          "type": "point_on_circle",
+          "point": "p7",
+          "circle": "c2"
+        },
+        {
+          "type": "point_on_circle",
+          "point": "p8",
+          "circle": "c2"
+        }
+      ]
+    },
+    {
+      "id": "f10",
+      "name": "Tooth",
+      "type": "extrude",
+      "sketch": "f9",
+      "depth": 1.2,
+      "op": "boss"
+    },
+    {
+      "id": "f11",
+      "name": "GrateHole",
+      "type": "hole",
+      "plane": {
+        "base": "top",
+        "offset": 4.0
+      },
+      "points": [
+        [
+          -81.0,
+          -27.5
+        ]
+      ],
+      "diameter": "hole_d"
+    },
+    {
+      "id": "f12",
+      "name": "GridA",
+      "type": "linear_pattern",
+      "features": [
+        "f10",
+        "f11"
+      ],
+      "direction": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "spacing": "pitch_x",
+      "count": 14.0,
+      "direction2": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "spacing2": "pitch_y",
+      "count2": 6.0
+    },
+    {
+      "id": "f13",
+      "name": "GridB",
+      "type": "linear_pattern",
+      "features": [
+        "f10",
+        "f11",
+        "f12"
+      ],
+      "direction": [
+        6.0,
+        0.0,
+        -5.0
+      ],
+      "spacing": 7.8102,
+      "count": 2.0
+    },
+    {
+      "id": "f14",
+      "name": "GripRound",
+      "type": "fillet",
+      "edges": [
+        {
+          "at": [
+            188.0,
+            6.0,
+            0.0
+          ],
+          "kind": "circle",
+          "length": 7.1624,
+          "rel": [
+            0.9433,
+            1.0,
+            0.5
+          ]
+        },
+        {
+          "at": [
+            185.859,
+            6.0,
+            8.0931
+          ],
+          "kind": "circle",
+          "length": 12.5287,
+          "rel": [
+            0.9362,
+            1.0,
+            0.6065
+          ]
+        },
+        {
+          "at": [
+            115.0,
+            6.0,
+            0.0
+          ],
+          "kind": "circle",
+          "length": 31.406,
+          "rel": [
+            0.7,
+            1.0,
+            0.5
+          ]
+        },
+        {
+          "at": [
+            152.5,
+            6.0,
+            10.0
+          ],
+          "kind": "line",
+          "length": 55.0,
+          "rel": [
+            0.825,
+            1.0,
+            0.6316
+          ]
+        },
+        {
+          "at": [
+            185.859,
+            6.0,
+            -8.0931
+          ],
+          "kind": "circle",
+          "length": 12.5287,
+          "rel": [
+            0.9362,
+            1.0,
+            0.3935
+          ]
+        },
+        {
+          "at": [
+            152.5,
+            6.0,
+            -10.0
+          ],
+          "kind": "line",
+          "length": 55.0,
+          "rel": [
+            0.825,
+            1.0,
+            0.3684
+          ]
+        }
+      ],
+      "radius": 1.5
+    },
+    {
+      "id": "f15",
+      "name": "Plane1",
+      "type": "plane",
+      "base": "top",
+      "offset": 10.0
+    },
+    {
+      "id": "f16",
+      "name": "Plane2",
+      "type": "plane",
+      "base": "f15",
+      "offset": 10.0
+    }
+  ]
+}

@@ -362,12 +362,6 @@ pub fn build_sheet(d: &Drawing, shape: &Solid, model_name: &str, source_label: &
     let rows: Vec<i32> = sorted_unique(cells.iter().map(|c| c.1));
     let col_w = |c: i32, f: &[f64]| (0..views.len()).filter(|&i| cells[i].0 == c && !floating[i]).map(|i| (views[i].hi[0] - views[i].lo[0]) * f[i]).fold(0.0, f64::max);
     let row_h = |r: i32, f: &[f64]| (0..views.len()).filter(|&i| cells[i].1 == r && !floating[i]).map(|i| (views[i].hi[1] - views[i].lo[1]) * f[i]).fold(0.0, f64::max);
-    for i in (0..views.len()).filter(|&i| floating[i]) {
-        let (cw, ch) = (col_w(cells[i].0, &factors), row_h(cells[i].1, &factors));
-        let (vw, vh) = (views[i].hi[0] - views[i].lo[0], views[i].hi[1] - views[i].lo[1]);
-        // a little larger than the cell is fine: gaps absorb it
-        factors[i] = (cw * 1.15 / vw.max(1e-9)).min(ch * 1.15 / vh.max(1e-9)).min(1.0);
-    }
     // floating views do not affect cell sizes, so a snapshot suffices
     let cell_factors = factors.clone();
     let col_w = |c: i32| col_w(c, &cell_factors);
@@ -385,35 +379,50 @@ pub fn build_sheet(d: &Drawing, shape: &Solid, model_name: &str, source_label: &
         Some(_) => bail!("scale must be positive"),
         None => STD_SCALES.iter().copied().find(|s| *s <= fit).unwrap_or(*STD_SCALES.last().unwrap()),
     };
-    // floating isometric views use the largest standard scale that fits their slot
-    for i in (0..views.len()).filter(|&i| floating[i]) {
-        let want = scale * factors[i];
-        let std = STD_SCALES.iter().copied().find(|s| *s <= want * 1.0001).unwrap_or(want);
-        factors[i] = std / scale;
-    }
-    let factor = |v: &Projected| factors[views.iter().position(|x| std::ptr::eq(x, v)).unwrap()];
     // 3. cell centres on paper, layout centred in the drawing area
     let tot_w = sum_w * scale + GAP * (cols.len() as f64 - 1.0);
     let tot_h = sum_h * scale + GAP * (rows.len() as f64 - 1.0);
     let mut x = (area_lo[0] + area_hi[0]) / 2.0 - tot_w / 2.0;
     let mut col_cx = std::collections::HashMap::new();
+    let mut col_x0 = std::collections::HashMap::new();
     for c in &cols {
         let cw = col_w(*c) * scale;
+        col_x0.insert(*c, x);
         col_cx.insert(*c, x + cw / 2.0);
         x += cw + GAP;
     }
     let mut y = (area_lo[1] + area_hi[1]) / 2.0 - tot_h / 2.0;
     let mut row_cy = std::collections::HashMap::new();
+    let mut row_y0 = std::collections::HashMap::new();
     for r in &rows {
         let rh = row_h(*r) * scale;
+        row_y0.insert(*r, y);
         row_cy.insert(*r, y + rh / 2.0);
         y += rh + GAP;
     }
+    // Floating isometric views take all free space from their cell to the next
+    // view (or the sheet edge), at the largest standard scale that fits, capped
+    // at the sheet scale, centred in that space.
+    let mut centre: Vec<Option<[f64; 2]>> = vec![None; views.len()];
+    for i in (0..views.len()).filter(|&i| floating[i]) {
+        let (c, r) = cells[i];
+        let x0 = col_x0[&c];
+        let x1 = cols.iter().find(|k| **k > c).map_or(area_hi[0], |k| col_x0[k] - GAP);
+        let y0 = row_y0[&r];
+        let y1 = rows.iter().find(|k| **k > r).map_or(area_hi[1], |k| row_y0[k] - GAP);
+        let (vw, vh) = (views[i].hi[0] - views[i].lo[0], views[i].hi[1] - views[i].lo[1]);
+        let fit = ((x1 - x0) / vw.max(1e-9)).min((y1 - y0 - 10.0) / vh.max(1e-9)).min(scale);
+        let std = STD_SCALES.iter().copied().find(|s| *s <= fit * 1.0001).unwrap_or(fit);
+        factors[i] = std / scale;
+        centre[i] = Some([(x0 + x1) / 2.0, (y0 + y1) / 2.0 + 4.0]);
+    }
+    let factor = |v: &Projected| factors[views.iter().position(|x| std::ptr::eq(x, v)).unwrap()];
     let mut sheet = Sheet { width: w, height: h, lines: vec![], texts: vec![], views: vec![], scale, warnings: vec![] };
     // 4. place views
-    for (v, cell) in views.iter().zip(&cells) {
+    for (i, (v, cell)) in views.iter().zip(&cells).enumerate() {
         let s = scale * factor(v);
-        let c = [col_cx[&cell.0] + v.def.offset[0], row_cy[&cell.1] + v.def.offset[1]];
+        let base = centre[i].unwrap_or([col_cx[&cell.0], row_cy[&cell.1]]);
+        let c = [base[0] + v.def.offset[0], base[1] + v.def.offset[1]];
         let mid = [(v.lo[0] + v.hi[0]) / 2.0, (v.lo[1] + v.hi[1]) / 2.0];
         let map = |p: [f64; 2]| [c[0] + (p[0] - mid[0]) * s, c[1] + (p[1] - mid[1]) * s];
         for e in &v.hid {
@@ -558,7 +567,10 @@ fn dimension_view(sheet: &mut Sheet, v: &Projected, map: &dyn Fn([f64; 2]) -> [f
     }
     // diameter callouts: arcs reassembled by centre/radius into full circles,
     // then grouped by size (a circle is often split into two half arcs)
-    let mut arcs: Vec<([f64; 2], f64, f64)> = vec![]; // (centre, radius, swept angle)
+    // Angular coverage (72 bins of 5°) per centre/radius: concentric arcs at
+    // different depths that overlap in projection must not add up to a circle.
+    const BINS: usize = 72;
+    let mut arcs: Vec<([f64; 2], f64, [bool; BINS])> = vec![];
     for e in v.vis.iter().filter(|e| e.kind == "circle" && e.pts.len() >= 3) {
         let (p, q, r) = (e.pts[0], e.pts[e.pts.len() / 2], e.pts[e.pts.len() - 1]);
         let Some((c, rad)) = circumcircle(p, q, r).or_else(|| {
@@ -567,7 +579,15 @@ fn dimension_view(sheet: &mut Sheet, v: &Projected, map: &dyn Fn([f64; 2]) -> [f
         }) else {
             continue;
         };
-        let mut sweep = 0.0;
+        let tol = rad * 1e-3 + 1e-6;
+        let k = match arcs.iter().position(|x| (x.0[0] - c[0]).hypot(x.0[1] - c[1]) < tol && (x.1 - rad).abs() < tol) {
+            Some(k) => k,
+            None => {
+                arcs.push((c, rad, [false; BINS]));
+                arcs.len() - 1
+            }
+        };
+        let bin = |a: f64| ((a.rem_euclid(std::f64::consts::TAU) / std::f64::consts::TAU * BINS as f64) as usize).min(BINS - 1);
         for w in e.pts.windows(2) {
             let a0 = (w[0][1] - c[1]).atan2(w[0][0] - c[0]);
             let a1 = (w[1][1] - c[1]).atan2(w[1][0] - c[0]);
@@ -577,18 +597,16 @@ fn dimension_view(sheet: &mut Sheet, v: &Projected, map: &dyn Fn([f64; 2]) -> [f
             } else if d < -std::f64::consts::PI {
                 d += std::f64::consts::TAU;
             }
-            sweep += d.abs();
-        }
-        let tol = rad * 1e-3 + 1e-6;
-        match arcs.iter_mut().find(|x| (x.0[0] - c[0]).hypot(x.0[1] - c[1]) < tol && (x.1 - rad).abs() < tol) {
-            Some(x) => x.2 += sweep,
-            None => arcs.push((c, rad, sweep)),
+            let steps = ((d.abs() / (std::f64::consts::TAU / BINS as f64 / 2.0)).ceil() as usize).max(1);
+            for i in 0..steps {
+                arcs[k].2[bin(a0 + d * (i as f64 + 0.5) / steps as f64)] = true;
+            }
         }
     }
     let mut groups: Vec<(f64, [f64; 2], usize)> = vec![]; // (diameter, first centre, count)
-    for (c, rad, sweep) in arcs {
-        if sweep < std::f64::consts::TAU * 0.99 {
-            continue; // partial arcs (fillets, slots) are not holes
+    for (c, rad, cover) in arcs {
+        if cover.iter().filter(|b| **b).count() < BINS - 2 {
+            continue; // partial arcs (fillets, slot ends) are not holes
         }
         let key = (rad * 2.0 * 100.0).round() / 100.0;
         match groups.iter_mut().find(|g| (g.0 - key).abs() < 1e-6) {
