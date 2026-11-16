@@ -1,0 +1,26 @@
+{
+  "format": "rustworks-drawing/1",
+  "name": "BASE-001",
+  "source": "base.rwpart",
+  "sheet": "a3",
+  "projection": "third_angle",
+  "views": [
+    {
+      "type": "front"
+    },
+    {
+      "type": "top"
+    },
+    {
+      "type": "right"
+    },
+    {
+      "type": "iso"
+    }
+  ],
+  "dimensions": true,
+  "title": {
+    "drawn_by": "Claude",
+    "material": "6061 Aluminum"
+  }
+}

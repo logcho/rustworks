@@ -1,0 +1,28 @@
+{
+  "format": "rustworks-drawing/1",
+  "name": "DEMO",
+  "source": "demo.rwasm",
+  "sheet": "a3",
+  "projection": "third_angle",
+  "views": [
+    {
+      "type": "front",
+      "hidden_lines": false
+    },
+    {
+      "type": "top",
+      "hidden_lines": false
+    },
+    {
+      "type": "right",
+      "hidden_lines": false
+    },
+    {
+      "type": "iso"
+    }
+  ],
+  "dimensions": true,
+  "title": {
+    "title": "BASE + CAP ASSEMBLY"
+  }
+}

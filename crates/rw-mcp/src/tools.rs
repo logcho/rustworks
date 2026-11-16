@@ -380,6 +380,56 @@ pub fn list() -> Value {
             "inputSchema": {"type":"object","properties":{"mate":{"type":"string"}},"required":["mate"]}
         },
         {
+            "name": "create_drawing",
+            "description": "Create a 2D engineering drawing (.rwdrw) of a part or assembly (default: the active one): hidden-line orthographic views in third-angle layout plus an isometric, automatic standard scale, overall dimensions, hole callouts and a title block. Returns a preview image.",
+            "inputSchema": {"type":"object","properties":{
+                "source":{"type":"string","description":"Part or assembly file (default: the active document)"},
+                "path":{"type":"string","description":"Drawing file (default <source>.rwdrw)"},
+                "name":{"type":"string","description":"Drawing number shown in the title block"},
+                "sheet":{"type":"string","enum":["a4","a3","a2","a1","a0","letter","tabloid"],"description":"Landscape sheet size (default a3)"},
+                "scale":{"description":"Number (paper/model) or \"1:2\"; omit or \"auto\" for the largest standard scale that fits","anyOf":[{"type":"number"},{"type":"string"}]},
+                "projection":{"type":"string","enum":["third_angle","first_angle"]},
+                "views":{"type":"array","items":{},"description":"View names (front, top, right, left, back, bottom, iso) or objects {\"type\":\"iso\",\"scale\":0.5,\"hidden_lines\":false,\"offset\":[dx,dy]}. Default front, top, right, iso."},
+                "hidden_lines":{"type":"boolean","description":"Dashed hidden edges in orthographic views (default true)"},
+                "dimensions":{"type":"boolean","description":"Overall dimensions and hole callouts (default true)"},
+                "title":{"type":"string"},"drawn_by":{"type":"string"},"material":{"type":"string"},"notes":{"type":"string"},
+                "width":{"type":"integer","description":"Preview image width in pixels (default 1600)"}
+            }}
+        },
+        {
+            "name": "open_drawing",
+            "description": "Open an existing .rwdrw drawing and return a preview image.",
+            "inputSchema": {"type":"object","properties":{"path":{"type":"string"},"width":{"type":"integer"}},"required":["path"]}
+        },
+        {
+            "name": "edit_drawing",
+            "description": "Change the active drawing (same options as create_drawing, or `changes` as a JSON merge patch of the drawing document) and return a new preview. The drawing always reflects the current state of its source model.",
+            "inputSchema": {"type":"object","properties":{
+                "changes":{"type":"object"},
+                "sheet":{"type":"string","enum":["a4","a3","a2","a1","a0","letter","tabloid"],"description":"Landscape sheet size (default a3)"},
+                "scale":{"description":"Number (paper/model) or \"1:2\"; omit or \"auto\" for the largest standard scale that fits","anyOf":[{"type":"number"},{"type":"string"}]},
+                "projection":{"type":"string","enum":["third_angle","first_angle"]},
+                "views":{"type":"array","items":{},"description":"View names (front, top, right, left, back, bottom, iso) or objects {\"type\":\"iso\",\"scale\":0.5,\"hidden_lines\":false,\"offset\":[dx,dy]}. Default front, top, right, iso."},
+                "hidden_lines":{"type":"boolean","description":"Dashed hidden edges in orthographic views (default true)"},
+                "dimensions":{"type":"boolean","description":"Overall dimensions and hole callouts (default true)"},
+                "title":{"type":"string"},"drawn_by":{"type":"string"},"material":{"type":"string"},"notes":{"type":"string"},
+                "width":{"type":"integer","description":"Preview image width in pixels (default 1600)"}
+            }}
+        },
+        {
+            "name": "render_drawing",
+            "description": "Rebuild the active drawing from its source model and return a preview image.",
+            "inputSchema": {"type":"object","properties":{"width":{"type":"integer"}}}
+        },
+        {
+            "name": "export_drawing",
+            "description": "Export the active drawing: pdf (print), svg, dxf (CAD, layers VISIBLE/HIDDEN/DIM/BORDER/TEXT) or png.",
+            "inputSchema": {"type":"object","properties":{
+                "format":{"type":"string","enum":["pdf","svg","dxf","png"]},
+                "path":{"type":"string","description":"Output file (default: next to the drawing)"}
+            },"required":["format"]}
+        },
+        {
             "name": "check_interference",
             "description": "Find components whose solids overlap, with the overlap volume.",
             "inputSchema": {"type":"object","properties":{}}

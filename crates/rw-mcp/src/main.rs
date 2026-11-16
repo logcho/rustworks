@@ -4,6 +4,7 @@
 #![recursion_limit = "512"]
 
 mod asm;
+mod drawing;
 mod tools;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -22,6 +23,8 @@ struct Server {
     asm: Option<AsmModel>,
     /// The assembly (not the part) is the active document for render/export/etc.
     focus_asm: bool,
+    /// Active drawing file.
+    drawing: Option<PathBuf>,
 }
 
 enum Reply {
@@ -31,7 +34,7 @@ enum Reply {
 
 fn main() -> Result<()> {
     // Positional arg: optional part file to open at startup.
-    let mut server = Server { model: None, asm: None, focus_asm: false };
+    let mut server = Server { model: None, asm: None, focus_asm: false, drawing: None };
     if let Some(p) = std::env::args().nth(1) {
         let path = PathBuf::from(p);
         if path.extension().is_some_and(|e| e == "rwasm") {
@@ -129,6 +132,9 @@ impl Server {
 
     fn call(&mut self, name: &str, a: &J) -> Result<Reply> {
         if let Some(r) = self.asm_call(name, a) {
+            return r;
+        }
+        if let Some(r) = self.drawing_call(name, a) {
             return r;
         }
         match name {
@@ -603,6 +609,8 @@ const INSTRUCTIONS: &str = "RustWorks is a parametric 3D CAD system (like SOLIDW
 (front/top/right, offset, a reference plane from the `plane` tool, or {face:N}) with geometry (lines, arcs, circles, splines, ...) + constraints; refine sketches with \
 edit_sketch (trim, fillet_corners, offset) → extrude/revolve/loft/sweep (boss or cut) → hole/patterns/mirror → fillet/chamfer (pick edges with list_edges \
 or render edge_labels) → draft/shell → render to look at it → edit_feature / set_parameters to iterate → export (step/stl). \
+Drawings: create_drawing from the active part or assembly (standard views, auto scale, overall dimensions, hole callouts, title block) → \
+look at the returned image → edit_drawing (views, scale, sheet, title) → export_drawing (pdf/svg/dxf/png). \
 Assembly workflow: build each part file, then new_assembly → add_component (first one is grounded) → add_mate between faces (list_faces with component, or \
 render) → check_interference → render/export. Units are mm, world is Y-up. Define key dimensions as parameters and reference them by name in expressions \
 so the design stays editable. After significant changes call render (face_labels:true when you need a face index). Every response includes rebuild \

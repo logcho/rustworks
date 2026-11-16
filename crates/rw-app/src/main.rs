@@ -5,6 +5,7 @@
 
 mod app;
 mod asm_ui;
+mod drawing_ui;
 mod sketcher;
 mod viewport;
 mod worker;

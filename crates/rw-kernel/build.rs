@@ -28,6 +28,9 @@ fn main() {
         .define("_USE_MATH_DEFINES", "TRUE")
         .flag_if_supported("-w")
         .compile("rw-occ-shim");
+    // Hidden-line removal lives in TKHLR, which opencascade-sys does not link.
+    println!("cargo:rustc-link-search=native={}", occt.join("../lib").display());
+    println!("cargo:rustc-link-lib=static=TKHLR");
     println!("cargo:rerun-if-changed=src/occ_ext.rs");
     println!("cargo:rerun-if-changed=cpp/rw_occ.cpp");
     println!("cargo:rerun-if-changed=cpp/rw_occ.h");

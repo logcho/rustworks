@@ -2987,6 +2987,7 @@ dependencies = [
  "glam",
  "rfd",
  "rw-core",
+ "rw-drawing",
  "serde_json",
 ]
 
@@ -2999,6 +3000,19 @@ dependencies = [
  "rw-sketch",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "rw-drawing"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "epaint_default_fonts",
+ "png",
+ "rw-core",
+ "serde",
+ "serde_json",
+ "skrifa",
 ]
 
 [[package]]
@@ -3025,6 +3039,7 @@ dependencies = [
  "anyhow",
  "libc",
  "rw-core",
+ "rw-drawing",
  "rw-render",
  "serde",
  "serde_json",

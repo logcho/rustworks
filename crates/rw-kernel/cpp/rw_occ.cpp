@@ -1,6 +1,10 @@
 #include "rw-kernel/cpp/rw_occ.h"
 
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepLib.hxx>
+#include <HLRAlgo_Projector.hxx>
+#include <HLRBRep_Algo.hxx>
+#include <HLRBRep_HLRToShape.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepOffsetAPI_DraftAngle.hxx>
@@ -171,5 +175,41 @@ std::unique_ptr<TopoDS_Shape> rw_transform(const TopoDS_Shape &s, rust::Slice<co
     return std::make_unique<TopoDS_Shape>(tr.Shape());
   } catch (const Standard_Failure &e) {
     fail("transform: " + occ_msg(e));
+  }
+}
+
+// Exact hidden-line removal. `axes` = view direction (toward the viewer) and
+// the drawing's +X direction. Results lie in the projection plane (z = 0):
+// visible = sharp + silhouette + smooth (tangent) edges, hidden = sharp + silhouette.
+void rw_hlr(const TopoDS_Shape &s, rust::Slice<const double> ax, TopoDS_Shape &visible, TopoDS_Shape &hidden) {
+  if (ax.size() != 6) fail("hlr: needs view and x directions");
+  try {
+    gp_Ax2 a(gp_Pnt(0, 0, 0), gp_Dir(ax[0], ax[1], ax[2]), gp_Dir(ax[3], ax[4], ax[5]));
+    HLRAlgo_Projector proj(a);
+    Handle(HLRBRep_Algo) h = new HLRBRep_Algo();
+    h->Add(s);
+    h->Projector(proj);
+    h->Update();
+    h->Hide();
+    HLRBRep_HLRToShape t(h);
+    BRep_Builder b;
+    TopoDS_Compound v, hd;
+    b.MakeCompound(v);
+    b.MakeCompound(hd);
+    auto put = [&](TopoDS_Compound &c, const TopoDS_Shape &x) {
+      if (!x.IsNull()) {
+        BRepLib::BuildCurves3d(x);
+        b.Add(c, x);
+      }
+    };
+    put(v, t.VCompound());
+    put(v, t.OutLineVCompound());
+    put(v, t.Rg1LineVCompound());
+    put(hd, t.HCompound());
+    put(hd, t.OutLineHCompound());
+    visible = v;
+    hidden = hd;
+  } catch (const Standard_Failure &e) {
+    fail("hidden-line removal: " + occ_msg(e));
   }
 }

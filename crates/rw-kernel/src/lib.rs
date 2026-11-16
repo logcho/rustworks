@@ -130,6 +130,22 @@ pub enum FaceGeom {
     Other,
 }
 
+/// A projected edge in drawing coordinates (mm), from hidden-line removal.
+#[derive(Clone, Debug)]
+pub struct Edge2 {
+    pub pts: Vec<[f64; 2]>,
+    /// "line", "circle" or "curve"
+    pub kind: &'static str,
+}
+
+/// Orthographic view axes: direction toward the viewer and the drawing's +X.
+/// Drawing +Y is `dir × x`.
+#[derive(Clone, Copy, Debug)]
+pub struct ViewAxes {
+    pub dir: [f64; 3],
+    pub x: [f64; 3],
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct EdgeInfo {
     pub index: usize,
@@ -387,5 +403,36 @@ mod tests {
         let both = compound(&[cyl.clone(), transform_matrix(&cyl, &translation([10.0, 0.0, 0.0])).unwrap()]);
         close(mp(&both).volume, 2.0 * std::f64::consts::PI * 5.0, 1e-6);
         assert!(overlap_volume(&cyl, &both) > 15.0);
+    }
+
+    #[cfg(feature = "occt")]
+    #[test]
+    fn hidden_line_views() {
+        // 40 x 20 x 10 plate (x, y, z) with a through hole along z
+        let s = plate_with_hole();
+        let bb = |es: &[Edge2]| {
+            let mut lo = [f64::INFINITY; 2];
+            let mut hi = [f64::NEG_INFINITY; 2];
+            for e in es {
+                for p in &e.pts {
+                    for k in 0..2 {
+                        lo[k] = lo[k].min(p[k]);
+                        hi[k] = hi[k].max(p[k]);
+                    }
+                }
+            }
+            (lo, hi)
+        };
+        // looking down -Z: the hole is a visible circle
+        let (vis, hid) = hlr(&s, ViewAxes { dir: [0.0, 0.0, 1.0], x: [1.0, 0.0, 0.0] }).unwrap();
+        let (lo, hi) = bb(&vis);
+        assert!((lo[0]).abs() < 1e-6 && (hi[0] - 40.0).abs() < 1e-6 && (hi[1] - 20.0).abs() < 1e-6, "{lo:?} {hi:?}");
+        assert!(vis.iter().any(|e| e.kind == "circle"));
+        let _ = hid; // bottom edges lie exactly under visible ones; drawings filter those out
+        // looking along -Y (side): the hole shows only as hidden lines
+        let (vis, hid) = hlr(&s, ViewAxes { dir: [0.0, 1.0, 0.0], x: [1.0, 0.0, 0.0] }).unwrap();
+        let (lo, hi) = bb(&vis);
+        assert!((hi[0] - lo[0] - 40.0).abs() < 1e-6 && (hi[1] - lo[1] - 5.0).abs() < 1e-6, "{lo:?} {hi:?}");
+        assert!(hid.len() >= 2, "hole silhouettes are hidden: {}", hid.len());
     }
 }

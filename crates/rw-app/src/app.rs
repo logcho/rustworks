@@ -1,4 +1,5 @@
 use crate::asm_ui::AsmUi;
+use crate::drawing_ui::DrawingUi;
 use crate::viewport::{LineVertex, Viewport};
 use crate::worker::{Rebuilt, Request, Response, Worker};
 use egui::{Color32, RichText};
@@ -51,6 +52,9 @@ pub struct App {
     /// Open assembly, and whether it is the active window.
     asm: Option<AsmUi>,
     asm_active: bool,
+    /// Open drawing, and whether it is the active window.
+    drawing: Option<DrawingUi>,
+    drw_active: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -124,11 +128,17 @@ impl App {
             part_mesh: None,
             asm: None,
             asm_active: false,
+            drawing: None,
+            drw_active: false,
         };
         match open.or(remembered) {
             Some(p) if p.extension().is_some_and(|e| e == "rwasm") => {
                 app.regen();
                 app.open_assembly(p);
+            }
+            Some(p) if p.extension().is_some_and(|e| e == "rwdrw") => {
+                app.regen();
+                app.open_drawing(p);
             }
             Some(p) if p.exists() => app.open(p),
             Some(p) => {
@@ -313,7 +323,41 @@ impl App {
         self.set_asm_active(true);
     }
 
+    fn open_drawing(&mut self, p: PathBuf) {
+        match DrawingUi::open(p) {
+            Ok(d) => {
+                self.drawing = Some(d);
+                self.drw_active = true;
+            }
+            Err(e) => self.notify(format!("Open drawing failed: {e:#}"), true),
+        }
+    }
+
+    /// File > New Drawing: of the active assembly, or else the open part.
+    fn new_drawing(&mut self) {
+        let source = if self.asm_active { self.asm.as_ref().and_then(|a| a.model.path.clone()) } else { self.path.clone() };
+        let Some(source) = source else {
+            self.notify("Save the part first (File › Save As) so the drawing can reference it".into(), true);
+            return;
+        };
+        if !self.asm_active {
+            self.save();
+        }
+        let stem = source.file_stem().and_then(|s| s.to_str()).unwrap_or("drawing").to_string();
+        let dir = source.parent().map(PathBuf::from).unwrap_or_default();
+        if let Some(p) = rfd::FileDialog::new().set_directory(&dir).set_file_name(format!("{stem}.rwdrw")).add_filter("RustWorks drawing", &["rwdrw"]).save_file() {
+            match DrawingUi::create(p, &source) {
+                Ok(d) => {
+                    self.drawing = Some(d);
+                    self.drw_active = true;
+                }
+                Err(e) => self.notify(format!("Could not create drawing: {e:#}"), true),
+            }
+        }
+    }
+
     fn set_asm_active(&mut self, on: bool) {
+        self.drw_active = false;
         self.asm_active = on && self.asm.is_some();
         self.sketcher = None;
         self.sel_edges.clear();
@@ -369,6 +413,14 @@ impl App {
                         self.open_assembly(p);
                     }
                 }
+                if ui.button("New Drawing…").on_hover_text("2D drawing of the active part or assembly").clicked() {
+                    self.new_drawing();
+                }
+                if ui.button("Open Drawing…").clicked() {
+                    if let Some(p) = rfd::FileDialog::new().add_filter("RustWorks drawing", &["rwdrw"]).pick_file() {
+                        self.open_drawing(p);
+                    }
+                }
                 if self.asm_active && ui.button("Export Assembly STEP…").clicked() {
                     if let Some(p) = rfd::FileDialog::new().set_file_name("assembly.step").add_filter("step", &["step"]).save_file() {
                         let r = self.asm.as_ref().unwrap().model.export_step(&p);
@@ -397,20 +449,28 @@ impl App {
                     }
                 }
             });
-            if self.asm.is_some() {
+            if self.asm.is_some() || self.drawing.is_some() {
                 ui.separator();
-                let mut want: Option<bool> = None;
-                if ui.selectable_label(!self.asm_active, "Part").on_hover_text("Edit the open part").clicked() {
-                    want = Some(false);
+                let mut want: Option<u8> = None;
+                let part_on = !self.asm_active && !self.drw_active;
+                if ui.selectable_label(part_on, "Part").on_hover_text("Edit the open part").clicked() {
+                    want = Some(0);
                 }
-                let an = self.asm.as_ref().map(|a| a.model.asm.name.clone()).unwrap_or_default();
-                if ui.selectable_label(self.asm_active, format!("Assembly: {an}")).clicked() {
-                    want = Some(true);
-                }
-                if let Some(w) = want {
-                    if w != self.asm_active {
-                        self.set_asm_active(w);
+                if let Some(an) = self.asm.as_ref().map(|a| a.model.asm.name.clone()) {
+                    if ui.selectable_label(self.asm_active && !self.drw_active, format!("Assembly: {an}")).clicked() {
+                        want = Some(1);
                     }
+                }
+                if let Some(dn) = self.drawing.as_ref().map(|d| d.doc.name.clone()) {
+                    if ui.selectable_label(self.drw_active, format!("Drawing: {dn}")).clicked() {
+                        want = Some(2);
+                    }
+                }
+                match want {
+                    Some(0) if !part_on => self.set_asm_active(false),
+                    Some(1) if !self.asm_active || self.drw_active => self.set_asm_active(true),
+                    Some(2) => self.drw_active = true,
+                    _ => {}
                 }
                 ui.separator();
             }
@@ -1762,6 +1822,8 @@ impl eframe::App for App {
         });
         let typing = ui.ctx().memory(|m| m.focused().is_some());
         let asm_mode = self.asm_active;
+        let drw_mode = self.drw_active;
+        let (undo, redo, del) = (undo && !drw_mode, redo && !drw_mode, del && !drw_mode);
         if undo {
             match (asm_mode, self.asm.as_mut()) {
                 (true, Some(a)) => a.undo(),
@@ -1791,7 +1853,23 @@ impl eframe::App for App {
         }
 
         egui::Panel::top("menu").show(ui, |ui| self.menu_bar(ui));
-        if let (true, Some(a)) = (asm_mode, self.asm.as_mut()) {
+        if let Some(d) = self.drawing.as_mut() {
+            d.poll(ui.ctx());
+            for (m, e) in std::mem::take(&mut d.notes) {
+                self.toast = Some((m, Instant::now(), e));
+            }
+        }
+        if let (true, Some(d)) = (self.drw_active, self.drawing.as_mut()) {
+            egui::Panel::top("commands")
+                .frame(egui::Frame::new().fill(Color32::from_rgb(232, 240, 232)).inner_margin(egui::Margin::symmetric(8, 5)))
+                .show(ui, |ui| d.command_bar(ui));
+            egui::Panel::bottom("status").show(ui, |ui| ui.horizontal(|ui| d.status_bar(ui)));
+            egui::Panel::left("tree").resizable(true).default_size(220.0).show(ui, |ui| d.tree(ui));
+            egui::Panel::right("props").resizable(true).default_size(290.0).show(ui, |ui| {
+                egui::ScrollArea::vertical().id_salt("props").show(ui, |ui| d.property_manager(ui));
+            });
+            egui::CentralPanel::default().frame(egui::Frame::new()).show(ui, |ui| d.canvas(ui));
+        } else if let (true, Some(a)) = (asm_mode, self.asm.as_mut()) {
             egui::Panel::top("commands")
                 .frame(egui::Frame::new().fill(Color32::from_rgb(240, 236, 228)).inner_margin(egui::Margin::symmetric(8, 5)))
                 .show(ui, |ui| a.command_bar(ui));
@@ -1810,7 +1888,9 @@ impl eframe::App for App {
                 egui::ScrollArea::vertical().id_salt("props").show(ui, |ui| self.property_manager(ui));
             });
         }
-        egui::CentralPanel::default().frame(egui::Frame::new()).show(ui, |ui| self.viewport(ui, rs.as_ref()));
+        if !self.drw_active {
+            egui::CentralPanel::default().frame(egui::Frame::new()).show(ui, |ui| self.viewport(ui, rs.as_ref()));
+        }
 
         if let Some((msg, t, err)) = &self.toast {
             if t.elapsed().as_secs_f32() < 4.0 {
@@ -1828,7 +1908,9 @@ impl eframe::App for App {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        if let (true, Some(p)) = (self.asm_active, self.asm.as_ref().and_then(|a| a.model.path.clone())) {
+        if let (true, Some(d)) = (self.drw_active, self.drawing.as_ref()) {
+            storage.set_string("last_file", d.path.display().to_string());
+        } else if let (true, Some(p)) = (self.asm_active, self.asm.as_ref().and_then(|a| a.model.path.clone())) {
             storage.set_string("last_file", p.display().to_string());
         } else if let Some(p) = &self.path {
             storage.set_string("last_file", p.display().to_string());

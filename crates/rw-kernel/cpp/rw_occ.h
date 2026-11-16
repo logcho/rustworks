@@ -17,3 +17,4 @@ int32_t rw_face_geom(const TopoDS_Shape &s, int32_t face, rust::Slice<double> ou
 std::unique_ptr<TopoDS_Shape> rw_compound_new();
 void rw_compound_add(TopoDS_Shape &c, const TopoDS_Shape &s);
 std::unique_ptr<TopoDS_Shape> rw_transform(const TopoDS_Shape &s, rust::Slice<const double> m);
+void rw_hlr(const TopoDS_Shape &s, rust::Slice<const double> axes, TopoDS_Shape &visible, TopoDS_Shape &hidden);

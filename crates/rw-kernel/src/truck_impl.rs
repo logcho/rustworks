@@ -2,7 +2,7 @@
 //! No fillet/chamfer/shell/STEP import; booleans are slower and less robust
 //! than the OpenCASCADE backend. Kept for builds without a C++ toolchain.
 
-use crate::{BoolOp, EdgeInfo, FaceGeom, FaceInfo, MassProps, Mesh, Plane, UnionKind, Xform};
+use crate::{BoolOp, Edge2, EdgeInfo, FaceGeom, ViewAxes, FaceInfo, MassProps, Mesh, Plane, UnionKind, Xform};
 use anyhow::{anyhow, bail, Result};
 use rw_sketch::{Loop, Region, Segment};
 use std::collections::HashSet;
@@ -412,4 +412,8 @@ pub fn transform_matrix(_s: &Solid, _m: &[[f64; 4]; 4]) -> Result<Solid> {
 
 pub fn overlap_volume(_a: &Solid, _b: &Solid) -> f64 {
     0.0
+}
+
+pub fn hlr(_s: &Solid, _v: ViewAxes) -> Result<(Vec<Edge2>, Vec<Edge2>)> {
+    bail!("drawings require the OpenCASCADE backend")
 }

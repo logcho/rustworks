@@ -5,7 +5,7 @@
 //! shelling, exact mass properties and STEP import/export.
 
 use crate::occ_ext::ext;
-use crate::{BoolOp, EdgeInfo, FaceGeom, FaceInfo, MassProps, Mesh, Plane, UnionKind, Xform};
+use crate::{BoolOp, Edge2, EdgeInfo, FaceGeom, ViewAxes, FaceInfo, MassProps, Mesh, Plane, UnionKind, Xform};
 use anyhow::{bail, Result};
 use cxx::UniquePtr;
 use opencascade_sys as ffi;
@@ -647,4 +647,26 @@ pub fn overlap_volume(a: &Solid, b: &Solid) -> f64 {
         return 0.0;
     }
     volume(c.pin_mut().Shape()).abs()
+}
+
+/// Hidden-line projection of a solid: (visible, hidden) edges in the view plane.
+pub fn hlr(s: &Solid, v: ViewAxes) -> Result<(Vec<Edge2>, Vec<Edge2>)> {
+    let mut vis = ext::rw_compound_new();
+    let mut hid = ext::rw_compound_new();
+    let ax = [v.dir[0], v.dir[1], v.dir[2], v.x[0], v.x[1], v.x[2]];
+    ext::rw_hlr(&s.inner, &ax, vis.pin_mut(), hid.pin_mut()).map_err(|e| anyhow::anyhow!("{}", e.what()))?;
+    let conv = |c: UniquePtr<TopoDS_Shape>| -> Vec<Edge2> {
+        edge_polylines(&Solid { inner: c }, 0.05)
+            .into_iter()
+            .map(|(_, pl, k)| Edge2 {
+                pts: pl.iter().map(|p| [p[0] as f64, p[1] as f64]).collect(),
+                kind: match k {
+                    ffi::geom_abs::GeomAbs_CurveType::GeomAbs_Line => "line",
+                    ffi::geom_abs::GeomAbs_CurveType::GeomAbs_Circle => "circle",
+                    _ => "curve",
+                },
+            })
+            .collect()
+    };
+    Ok((conv(vis), conv(hid)))
 }
