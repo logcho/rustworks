@@ -1479,7 +1479,28 @@ impl App {
         let input = ui.input(|i| (i.pointer.hover_pos(), i.smooth_scroll_delta.y, i.modifiers.shift, i.pointer.primary_down(), i.pointer.secondary_down(), i.pointer.middle_down()));
         let (hover, scroll, shift, _p, sec, mid) = input;
         let sketching = self.sketcher.is_some();
-        if resp.dragged() {
+        let local = hover.filter(|p| rect.contains(*p)).map(|p| p - rect.min);
+        let hit = local.and_then(|l| vp.pick(l.x, l.y, w, h));
+        // Assembly: left-drag on a (non-grounded) part moves it.
+        let mut comp_drag = false;
+        if let (true, Some(a)) = (asm_mode, self.asm.as_mut()) {
+            if resp.drag_started_by(egui::PointerButton::Primary) && !shift {
+                if let Some((f, p)) = hit {
+                    a.begin_drag(f, p, vp.cam.eye_dir());
+                }
+            }
+            if a.dragging.is_some() {
+                comp_drag = true;
+                if let Some(l) = local {
+                    let (o, d) = vp.cam.ray(l.x, l.y, w, h);
+                    a.drag_to(o, d);
+                }
+                if resp.drag_stopped() || !ui.input(|i| i.pointer.primary_down()) {
+                    a.end_drag();
+                }
+            }
+        }
+        if resp.dragged() && !comp_drag {
             let d = resp.drag_delta();
             if sketching {
                 // left button belongs to the sketch tools
@@ -1494,8 +1515,7 @@ impl App {
                 vp.cam.orbit(d.x, d.y);
             }
         }
-        let local = hover.filter(|p| rect.contains(*p)).map(|p| p - rect.min);
-        let hit = local.and_then(|l| vp.pick(l.x, l.y, w, h));
+        let hit = if comp_drag { None } else { local.and_then(|l| vp.pick(l.x, l.y, w, h)) };
         vp.hovered = if resp.dragged() { None } else { hit.map(|h| h.0) };
         if resp.hovered() && scroll.abs() > 0.0 {
             let toward = hit.map(|h| h.1).or_else(|| {
@@ -1597,7 +1617,8 @@ impl App {
         let mut sketch_edit: Option<(String, rw_core::sketch::Sketch)> = None;
         if let Some(sk) = self.sketcher.as_mut() {
             if let Some((sketch, plane)) = found {
-                let del = ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace));
+                let typing = ui.ctx().memory(|m| m.focused().is_some());
+                let del = !typing && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace));
                 if del {
                     if let Some(n) = sk.delete_hovered(ui, rect, &vp.cam, &plane, &sketch) {
                         sketch_edit = Some((sk.feature.clone(), n));

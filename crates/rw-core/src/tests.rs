@@ -347,6 +347,19 @@ fn assembly_mates_dof_interference() {
     let axis = p.dir([0.0, 1.0, 0.0]);
     assert!(axis[1] > 0.99999, "pin points up {axis:?}");
     assert!(m.out.interferences().unwrap().is_empty());
+    // dragging the pin sideways can only spin it about its axis
+    assert!(m.drag_preview("c2", [6.0, 15.0, 0.0], [50.0, 100.0, 0.0]));
+    let p = m.out.placement("c2").unwrap();
+    let o = p.point([0.0; 3]);
+    assert!(o[0].abs() < 1e-3 && (o[1] - 10.0).abs() < 1e-3 && o[2].abs() < 1e-3, "pin stays mated {o:?}");
+    let g = p.point([6.0, 15.0, 0.0]);
+    assert!(g[0] > 5.99 && g[2].abs() < 1e-2, "grabbed point turned toward the target {g:?}");
+    m.drag_commit().unwrap();
+    assert!(m.out.errors().is_empty(), "{:?}", m.out.errors());
+    let g2 = m.out.placement("c2").unwrap().point([6.0, 15.0, 0.0]);
+    assert!((g2[0] - g[0]).abs() < 1e-3, "committed {g2:?}");
+    // the grounded plate does not move
+    assert!(!m.drag_preview("c1", [0.0; 3], [100.0, 0.0, 0.0]));
     // push the pin through the plate: bottoms flush (aligned normals) → overlaps the Ø10 hole wall
     m.edit(|asm| {
         let mt = asm.mates.iter_mut().find(|x| x.id == top).unwrap();

@@ -59,6 +59,8 @@ pub struct AsmUi {
     /// Part file the user asked to open for editing.
     pub open_part: Option<PathBuf>,
     last_poll: Instant,
+    /// Component being dragged: (id, grabbed point in part coords, drag plane point, plane normal).
+    pub dragging: Option<(String, [f64; 3], Vec3, Vec3)>,
 }
 
 impl AsmUi {
@@ -78,6 +80,7 @@ impl AsmUi {
             notes: vec![],
             open_part: None,
             last_poll: Instant::now(),
+            dragging: None,
         }
     }
 
@@ -146,15 +149,59 @@ impl AsmUi {
         self.mesh_dirty = false;
     }
 
-    /// Maps a merged-mesh face index + world point to a component pick.
-    pub fn pick(&mut self, face: u32, world: Vec3, add: bool) {
-        let Some(&(ci, _)) = self.owners.iter().rev().find(|(_, off)| *off <= face) else { return };
-        let c = &self.model.out.components[ci];
-        let p = c.placement;
+    /// Component under a merged-mesh face, and the world point in its part coordinates.
+    fn locate(&self, face: u32, world: Vec3) -> Option<(usize, [f64; 3])> {
+        let &(ci, _) = self.owners.iter().rev().find(|(_, off)| *off <= face)?;
+        let p = self.model.out.components[ci].placement;
         let w = [world.x as f64, world.y as f64, world.z as f64];
         // inverse rigid transform: R^T (w - t)
         let d = [w[0] - p.t[0], w[1] - p.t[1], w[2] - p.t[2]];
-        let local = [0, 1, 2].map(|j| ((p.r[0][j] * d[0] + p.r[1][j] * d[1] + p.r[2][j] * d[2]) * 1e4).round() / 1e4);
+        Some((ci, [0, 1, 2].map(|j| ((p.r[0][j] * d[0] + p.r[1][j] * d[1] + p.r[2][j] * d[2]) * 1e4).round() / 1e4)))
+    }
+
+    /// Starts dragging the component under the cursor. Returns false for
+    /// grounded components (the view orbits instead).
+    pub fn begin_drag(&mut self, face: u32, world: Vec3, eye_dir: Vec3) -> bool {
+        let Some((ci, local)) = self.locate(face, world) else { return false };
+        let c = &self.model.out.components[ci];
+        if c.grounded {
+            return false;
+        }
+        self.sel_comp = Some(c.id.clone());
+        self.sel_mate = None;
+        self.dragging = Some((c.id.clone(), local, world, eye_dir));
+        self.mesh_dirty = true;
+        true
+    }
+
+    /// Moves the dragged component toward the cursor ray (on a plane facing the camera).
+    pub fn drag_to(&mut self, ray_o: Vec3, ray_d: Vec3) {
+        let Some((id, local, p0, n)) = self.dragging.clone() else { return };
+        let den = ray_d.dot(n);
+        if den.abs() < 1e-8 {
+            return;
+        }
+        let t = (p0 - ray_o).dot(n) / den;
+        let target = ray_o + ray_d * t;
+        if self.model.drag_preview(&id, local, [target.x as f64, target.y as f64, target.z as f64]) {
+            self.mesh_dirty = true;
+        }
+    }
+
+    pub fn end_drag(&mut self) {
+        if self.dragging.take().is_some() {
+            if let Err(e) = self.model.drag_commit() {
+                self.note(format!("{e:#}"), true);
+            }
+            self.mesh_dirty = true;
+            self.interference = None;
+        }
+    }
+
+    /// Maps a merged-mesh face index + world point to a component pick.
+    pub fn pick(&mut self, face: u32, world: Vec3, add: bool) {
+        let Some((ci, local)) = self.locate(face, world) else { return };
+        let c = &self.model.out.components[ci];
         let pick = Pick { component: c.id.clone(), name: c.name.clone(), local, world };
         if !add {
             self.picks.clear();
@@ -541,7 +588,7 @@ impl AsmUi {
             }
         }
         ui.label(RichText::new("PropertyManager").strong());
-        ui.label(RichText::new("Click a face, then Shift-click a face on another component; choose a mate type and press Add Mate.").weak());
+        ui.label(RichText::new("Click a face, then Shift-click a face on another component; choose a mate type and press Add Mate. Drag a part to move it (mated parts slide along their free directions).").weak());
         if !self.picks.is_empty() {
             ui.separator();
             ui.label(RichText::new("Picked faces").strong());

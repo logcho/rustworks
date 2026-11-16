@@ -46,11 +46,12 @@ Part features: Sketch (line, polyline, rectangle, circle, arc, polygon, slot, sp
 
 **Sketching in the app:** double-click a sketch (or click Edit Sketch) to draw with the mouse.
 - Tools: Line chains, rectangles, circles, arcs, splines, points, and Smart Dimension. Select mode lets you drag points; the solver keeps every relation.
+- Driving dimensions are drawn in the viewport; click a value to edit it in place (numbers or parameter expressions).
 - Editing: **Trim** (click the piece to remove), **Offset** (click a curve; its connected chain is offset, Shift for the other side), **Fillet** (click a corner point). The radius and distance fields appear in the command bar.
 - Endpoints snap to existing points. Lines within 3° of horizontal or vertical get that relation automatically.
 - Right-drag rotates the view. Esc cancels the current tool; Delete removes the entity under the cursor.
 
-**Assemblies** (`.rwasm`): File › New/Open Assembly. Insert Component adds a part file; the first component (or any marked Fixed) is grounded. Click a face, Shift-click a face on another component, pick a mate type (coincident, concentric, distance, parallel, perpendicular, angle) and press Add Mate: the moving part snaps into place, then all mates are solved together. Planar faces mate as planes, cylinders and cones as their axes, spheres as their centers. The tree shows each mate's status and the remaining degrees of freedom; conflicting mates turn red. Check Interference reports overlapping components with the overlap volume. Double-click a component to edit its part; the assembly picks up the change automatically.
+**Assemblies** (`.rwasm`): File › New/Open Assembly. Insert Component adds a part file; the first component (or any marked Fixed) is grounded. Click a face, Shift-click a face on another component, pick a mate type (coincident, concentric, distance, parallel, perpendicular, angle) and press Add Mate: the moving part snaps into place, then all mates are solved together. Planar faces mate as planes, cylinders and cones as their axes, spheres as their centers. The tree shows each mate's status and the remaining degrees of freedom; conflicting mates turn red. Drag a part with the left mouse button to move it: mated parts slide only along their remaining degrees of freedom (a pinned part spins about its pin), and the grounded part stays put. Check Interference reports overlapping components with the overlap volume. Double-click a component to edit its part; the assembly picks up the change automatically.
 
 **Edge references** (fillet, chamfer) are stored as a point on the edge plus the edge's kind, length and position within the part's bounding box. After each rebuild they re-snap to the matched edge, so a fillet keeps following its edge as dimensions change (for example the top edge of a pin stays "the top edge" when the pin gets longer). If a change makes the match ambiguous, the feature reports an error instead of silently grabbing a different edge.
 
@@ -72,10 +73,10 @@ Measured on the example parts (release build, Apple Silicon):
 - **Shell after fillets:** OCCT cannot open a face whose edges are tangent to fillets. RustWorks detects this and asks you to move the Shell before those fillets, which is also the standard SOLIDWORKS practice.
 - **Edge and face references are geometric,** not true topological naming. Large changes can make a reference ambiguous; it then reports an error and you reselect the edge or face.
 - **Sweeps** use the profile where it is drawn (no automatic placement at the path start) and do not twist or scale along the path. Splines cannot be trimmed.
-- **Assemblies:** no mechanical mates (gear, cam, slot), no sub-assemblies, no in-context part editing, and no exploded views. Dragging a component in the viewport is not supported; edit its position in the PropertyManager.
+- **Assemblies:** no mechanical mates (gear, cam, slot), no sub-assemblies, no in-context part editing, and no exploded views. Dragging moves parts but cannot rotate an unmated part in place; type a rotation in the PropertyManager.
 - **Not built yet:**
   - Modeling: rib, wrap, variable-radius fillets, threads, sheet metal, multi-body parts, configurations.
   - Reference geometry: axes and points as features.
-  - Sketching: extend, text, dimensions displayed in the viewport (they are edited in the PropertyManager).
+  - Sketching: extend, text, dimension leader/arrow graphics (values are shown as labels), feature dimensions (e.g. extrude depth) in the viewport.
   - Beyond parts and assemblies: drawings, simulation.
 - **Licensing:** OpenCASCADE is LGPL-2.1 (with an exception) and is linked statically. That's fine for this open-source project. If you distribute closed-source binaries, check the LGPL relinking terms or switch to dynamic linking.

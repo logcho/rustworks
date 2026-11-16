@@ -576,7 +576,7 @@ impl AsmRegenerator {
                 error,
             });
         }
-        let (mates, solve) = solve(asm, &mut comps);
+        let (mates, solve) = solve(asm, &mut comps, None);
         let mut solved = asm.clone();
         for (c, co) in solved.components.iter_mut().zip(&comps) {
             if !co.grounded && !co.suppressed {
@@ -778,7 +778,20 @@ fn step(p: &Placement, d: &[f64]) -> Placement {
     Placement { r: mm(&dr, &p.r), t: [p.t[0] + d[0], p.t[1] + d[1], p.t[2] + d[2]] }
 }
 
-fn solve(asm: &Assembly, comps: &mut [ComponentOut]) -> (Vec<MateStatus>, AsmSolveReport) {
+/// Interactive drag: pull `local` (a point on component `comp`, part
+/// coordinates) toward the world point `target`, while mates hold.
+#[derive(Clone, Copy, Debug)]
+pub struct Drag {
+    pub comp: usize,
+    pub local: V3,
+    pub target: V3,
+}
+
+/// Weight of the drag pull relative to mate residuals: small, so mates win
+/// and the part only slides along its remaining degrees of freedom.
+const DRAG_WEIGHT: f64 = 1e-2;
+
+fn solve(asm: &Assembly, comps: &mut [ComponentOut], drag: Option<Drag>) -> (Vec<MateStatus>, AsmSolveReport) {
     let (ms, mut status) = prepare(asm, comps);
     let free: Vec<usize> = (0..comps.len()).filter(|&i| !comps[i].grounded && !comps[i].suppressed && comps[i].body.is_some()).collect();
     let l = comps
@@ -791,8 +804,17 @@ fn solve(asm: &Assembly, comps: &mut [ComponentOut]) -> (Vec<MateStatus>, AsmSol
     let mut pl: Vec<Placement> = comps.iter().map(|c| c.placement).collect();
     let tol = 1e-7 * l.max(1.0);
     let mut report = AsmSolveReport { converged: true, ..Default::default() };
-    let jac = |pl: &[Placement]| -> (Vec<f64>, Vec<Vec<f64>>) {
-        let r0 = flat(&eval_all(&ms, pl, l));
+    let drag = drag.filter(|d| free.contains(&d.comp));
+    let resid = |pl: &[Placement], with_drag: bool| -> Vec<f64> {
+        let mut r = flat(&eval_all(&ms, pl, l));
+        if let (true, Some(d)) = (with_drag, drag) {
+            let w = pl[d.comp].point(d.local);
+            r.extend((0..3).map(|k| (w[k] - d.target[k]) * DRAG_WEIGHT));
+        }
+        r
+    };
+    let jac_with = |pl: &[Placement], with_drag: bool| -> (Vec<f64>, Vec<Vec<f64>>) {
+        let r0 = resid(pl, with_drag);
         let mut cols = vec![];
         for (k, &ci) in free.iter().enumerate() {
             for j in 0..6 {
@@ -804,18 +826,20 @@ fn solve(asm: &Assembly, comps: &mut [ComponentOut]) -> (Vec<MateStatus>, AsmSol
                 d[j] = -h;
                 let mut p2 = pl.to_vec();
                 p2[ci] = step(&pl[ci], &d);
-                let (a, b) = (flat(&eval_all(&ms, &p1, l)), flat(&eval_all(&ms, &p2, l)));
+                let (a, b) = (resid(&p1, with_drag), resid(&p2, with_drag));
                 cols.push(a.iter().zip(&b).map(|(x, y)| (x - y) / (2.0 * h)).collect());
                 let _ = k;
             }
         }
         (r0, cols)
     };
-    if n > 0 && !ms.is_empty() {
+    let jac = |pl: &[Placement]| jac_with(pl, false);
+    if n > 0 && (!ms.is_empty() || drag.is_some()) {
         let mut lambda = 1e-3;
-        for it in 0..300 {
+        let max_iter = if drag.is_some() { 40 } else { 300 };
+        for it in 0..max_iter {
             report.iterations = it;
-            let (r, cols) = jac(&pl);
+            let (r, cols) = jac_with(&pl, drag.is_some());
             let f0 = sq(&r);
             if f0.sqrt() < tol {
                 break;
@@ -845,7 +869,7 @@ fn solve(asm: &Assembly, comps: &mut [ComponentOut]) -> (Vec<MateStatus>, AsmSol
                 for (k, &ci) in free.iter().enumerate() {
                     trial[ci] = step(&pl[ci], &dx[k * 6..k * 6 + 6]);
                 }
-                if sq(&flat(&eval_all(&ms, &trial, l))) < f0 {
+                if sq(&resid(&trial, drag.is_some())) < f0 {
                     pl = trial;
                     lambda = (lambda / 3.0).max(1e-12);
                     improved = true;
@@ -1102,6 +1126,35 @@ impl AsmModel {
             Ok(())
         })?;
         Ok(id)
+    }
+
+    /// Live drag preview: moves component `comp` so its part-space point
+    /// `local` follows `target`, honoring mates. Only the displayed placements
+    /// change; call `drag_commit` to store the result as one undo step.
+    pub fn drag_preview(&mut self, comp: &str, local: [f64; 3], target: [f64; 3]) -> bool {
+        let Some(ci) = self.out.components.iter().position(|c| c.id == comp) else { return false };
+        if self.out.components[ci].grounded {
+            return false;
+        }
+        solve(&self.asm, &mut self.out.components, Some(Drag { comp: ci, local, target }));
+        // settle exactly onto the mates from the dragged position
+        let (mates, report) = solve(&self.asm, &mut self.out.components, None);
+        self.out.mates = mates;
+        self.out.solve = report;
+        true
+    }
+
+    /// Stores the dragged placements in the document (then re-solves exactly).
+    pub fn drag_commit(&mut self) -> Result<()> {
+        let placed: Vec<(String, Placement)> = self.out.components.iter().map(|c| (c.id.clone(), c.placement)).collect();
+        self.edit(|a| {
+            for (id, p) in &placed {
+                if let Some(c) = a.component_mut(id) {
+                    p.write(c);
+                }
+            }
+            Ok(())
+        })
     }
 
     pub fn undo(&mut self) -> bool {

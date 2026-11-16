@@ -50,6 +50,8 @@ pub struct Sketcher {
     pub message: Option<String>,
     pub fillet_radius: f64,
     pub offset_dist: f64,
+    /// Dimension being edited in place: (constraint index, text, screen position).
+    editing_dim: Option<(usize, String, Pos2)>,
 }
 
 /// Snap radius in screen pixels.
@@ -67,10 +69,12 @@ impl Sketcher {
             message: None,
             fillet_radius: 3.0,
             offset_dist: 2.0,
+            editing_dim: None,
         }
     }
 
     pub fn cancel(&mut self) {
+        self.editing_dim = None;
         self.clicks.clear();
         self.dim_first = None;
         self.drag = None;
@@ -143,15 +147,93 @@ impl Sketcher {
         }
 
         let mut out: Option<Sketch> = None;
-        let clicked = resp.clicked_by(egui::PointerButton::Primary);
+        let mut clicked = resp.clicked_by(egui::PointerButton::Primary);
+
+        // Driving dimensions drawn in the viewport; click a label to edit it.
+        let labels = dimension_labels(sketch, &to_screen);
+        let mut label_hit: Option<(usize, egui::Rect)> = None;
+        for (i, anchor, at, text) in &labels {
+            let galley = painter.layout_no_wrap(text.clone(), egui::FontId::proportional(12.0), Color32::from_rgb(20, 40, 120));
+            let r = egui::Rect::from_center_size(*at, galley.size() + egui::vec2(8.0, 4.0));
+            let hot = hover.is_some_and(|h| r.contains(h));
+            painter.line_segment([*anchor, r.center()], Stroke::new(1.0, Color32::from_rgba_unmultiplied(20, 40, 120, 110)));
+            painter.rect_filled(r, 3.0, if hot { Color32::from_rgb(255, 236, 200) } else { Color32::from_rgba_unmultiplied(255, 255, 255, 225) });
+            painter.rect_stroke(r, 3.0, Stroke::new(1.0, Color32::from_rgb(20, 40, 120)), egui::StrokeKind::Inside);
+            painter.galley(r.center() - galley.size() / 2.0, galley, Color32::from_rgb(20, 40, 120));
+            if hot {
+                label_hit = Some((*i, r));
+            }
+        }
+        if clicked {
+            if let Some((i, r)) = label_hit {
+                let cur = match &sketch.constraints[i] {
+                    Constraint::Distance { value, .. }
+                    | Constraint::HorizontalDistance { value, .. }
+                    | Constraint::VerticalDistance { value, .. }
+                    | Constraint::Radius { value, .. }
+                    | Constraint::Diameter { value, .. }
+                    | Constraint::Angle { value, .. } => value.to_string(),
+                    _ => String::new(),
+                };
+                self.editing_dim = Some((i, cur, r.left_top()));
+                clicked = false; // the click belongs to the label, not the tool
+            }
+        }
+        if let Some((i, mut text, pos)) = self.editing_dim.take() {
+            let mut done: Option<bool> = None;
+            egui::Area::new(egui::Id::new(("dim-edit", &self.feature, i))).fixed_pos(pos).order(egui::Order::Foreground).show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(90.0));
+                        r.request_focus();
+                        if ui.input(|inp| inp.key_pressed(egui::Key::Enter)) {
+                            done = Some(true);
+                        } else if ui.input(|inp| inp.key_pressed(egui::Key::Escape)) {
+                            done = Some(false);
+                        }
+                        if ui.small_button("OK").clicked() {
+                            done = Some(true);
+                        }
+                    });
+                });
+            });
+            match done {
+                Some(true) => {
+                    let v = parse_value(&text);
+                    let mut sk = sketch.clone();
+                    if let Some(
+                        Constraint::Distance { value, .. }
+                        | Constraint::HorizontalDistance { value, .. }
+                        | Constraint::VerticalDistance { value, .. }
+                        | Constraint::Radius { value, .. }
+                        | Constraint::Diameter { value, .. }
+                        | Constraint::Angle { value, .. },
+                    ) = sk.constraints.get_mut(i)
+                    {
+                        if *value != v {
+                            *value = v;
+                            out = Some(sk);
+                        }
+                    }
+                }
+                Some(false) => {}
+                None => self.editing_dim = Some((i, text, pos)),
+            }
+            // while a value is being typed, tools ignore the mouse
+            clicked = false;
+        }
         let double = resp.double_clicked();
         let esc = ui.input(|i| i.key_pressed(egui::Key::Escape)) || resp.clicked_by(egui::PointerButton::Secondary);
-        if esc {
+        if esc && self.editing_dim.is_none() {
             self.cancel();
         }
 
-        // Tool shortcuts
+        // Tool shortcuts (not while typing a value)
+        let typing = self.editing_dim.is_some() || ui.ctx().memory(|m| m.focused().is_some());
         ui.input(|i| {
+            if typing {
+                return;
+            }
             for (k, t) in [
                 (egui::Key::L, Tool::Line),
                 (egui::Key::R, Tool::Rectangle),
@@ -171,13 +253,9 @@ impl Sketcher {
                 }
             }
         });
-        let typing = ui.ctx().memory(|m| m.focused().is_some());
-        if typing {
-            // keyboard focus is in a text field; ignore stray shortcut changes
-        }
 
         let shift = ui.input(|i| i.modifiers.shift);
-        let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+        let enter = ui.input(|i| i.key_pressed(egui::Key::Enter)) && self.editing_dim.is_none();
         let blue = Stroke::new(1.5, Color32::from_rgb(0, 110, 255));
         match self.tool {
             Tool::Spline => {
@@ -689,4 +767,84 @@ fn highlight(painter: &egui::Painter, sk: &Sketch, id: &str, to_screen: &dyn Fn(
         }
         _ => {}
     }
+}
+
+fn parse_value(s: &str) -> Value {
+    let s = s.trim();
+    match s.parse::<f64>() {
+        Ok(n) => Value::Num(n),
+        Err(_) if s.is_empty() => Value::Num(0.0),
+        Err(_) => Value::Expr(s.to_string()),
+    }
+}
+
+/// Screen anchor for an entity: points themselves, line midpoints, circle/arc centers.
+fn anchor_of(sk: &Sketch, id: &str, to_screen: &dyn Fn([f64; 2]) -> Option<Pos2>) -> Option<Pos2> {
+    match sk.entity(id)? {
+        Entity::Point { x, y, .. } => to_screen([*x, *y]),
+        Entity::Line { start, end, .. } => {
+            let (a, b) = (sk.point_xy(start)?, sk.point_xy(end)?);
+            to_screen([(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0])
+        }
+        Entity::Circle { center, .. } | Entity::Arc { center, .. } => sk.point_xy(center).and_then(to_screen),
+        Entity::Spline { points, .. } => sk.point_xy(points.get(points.len() / 2)?).and_then(to_screen),
+    }
+}
+
+/// (constraint index, anchor, label position, text) for every driving dimension.
+fn dimension_labels(sk: &Sketch, to_screen: &dyn Fn([f64; 2]) -> Option<Pos2>) -> Vec<(usize, Pos2, Pos2, String)> {
+    let fmt = |v: &Value| match v {
+        Value::Num(n) => trim(*n),
+        Value::Expr(e) => e.clone(),
+    };
+    let mut out = vec![];
+    for (i, c) in sk.constraints.iter().enumerate() {
+        let item = match c {
+            Constraint::Distance { a, b: None, value } => match sk.entity(a) {
+                Some(Entity::Line { start, end, .. }) => (|| {
+                    let (p, q) = (sk.point_xy(start).and_then(to_screen)?, sk.point_xy(end).and_then(to_screen)?);
+                    let m = p + (q - p) / 2.0;
+                    let d = (q - p).normalized();
+                    let n = egui::vec2(-d.y, d.x);
+                    // put the label on the outside-ish (above/left) of the line
+                    let n = if n.y > 0.0 { -n } else { n };
+                    Some((m, m + n * 16.0, fmt(value)))
+                })(),
+                Some(Entity::Circle { .. } | Entity::Arc { .. }) => {
+                    anchor_of(sk, a, to_screen).map(|c| (c, c + egui::vec2(18.0, -18.0), format!("Ø{}", fmt(value))))
+                }
+                _ => None,
+            },
+            Constraint::Distance { a, b: Some(b), value } | Constraint::HorizontalDistance { a, b, value } | Constraint::VerticalDistance { a, b, value } => {
+                (|| {
+                    let (p, q) = (anchor_of(sk, a, to_screen)?, anchor_of(sk, b, to_screen)?);
+                    let m = p + (q - p) / 2.0;
+                    Some((m, m + egui::vec2(0.0, -16.0), fmt(value)))
+                })()
+            }
+            Constraint::Radius { entity, value } | Constraint::Diameter { entity, value } => (|| {
+                let pre = if matches!(c, Constraint::Radius { .. }) { "R" } else { "Ø" };
+                let (cen, r) = match sk.entity(entity)? {
+                    Entity::Circle { center, radius, .. } => (sk.point_xy(center)?, *radius),
+                    Entity::Arc { center, start, .. } => {
+                        let (c0, s0) = (sk.point_xy(center)?, sk.point_xy(start)?);
+                        (c0, (s0[0] - c0[0]).hypot(s0[1] - c0[1]))
+                    }
+                    _ => return None,
+                };
+                let on = to_screen([cen[0] + r * 0.7071, cen[1] + r * 0.7071])?;
+                Some((on, on + egui::vec2(16.0, -16.0), format!("{pre}{}", fmt(value))))
+            })(),
+            Constraint::Angle { a, b, value } => (|| {
+                let (p, q) = (anchor_of(sk, a, to_screen)?, anchor_of(sk, b, to_screen)?);
+                let m = p + (q - p) / 2.0;
+                Some((m, m + egui::vec2(14.0, 14.0), format!("{}°", fmt(value))))
+            })(),
+            _ => None,
+        };
+        if let Some((anchor, at, text)) = item {
+            out.push((i, anchor, at, text));
+        }
+    }
+    out
 }
