@@ -1,0 +1,11 @@
+[package]
+name = "rw-sw"
+version.workspace = true
+edition.workspace = true
+description = "SOLIDWORKS interoperability for RustWorks: translates SOLIDWORKS API dumps into parts/assemblies and drives the SOLIDWORKS bridge"
+
+[dependencies]
+rw-core = { path = "../rw-core" }
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true

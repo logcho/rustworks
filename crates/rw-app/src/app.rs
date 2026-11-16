@@ -333,6 +333,62 @@ impl App {
         }
     }
 
+    fn import_solidworks(&mut self, src: PathBuf) {
+        let name = src.file_name().and_then(|n| n.to_str()).unwrap_or("solidworks");
+        let stem = name.split('.').next().unwrap_or("solidworks").to_string();
+        let out = src.parent().map(PathBuf::from).unwrap_or_default().join(format!("{stem}-rustworks"));
+        match rw_sw::import(&src, &out) {
+            Ok(rep) => {
+                let file = rep.file().to_path_buf();
+                let msg = match &rep {
+                    rw_sw::ImportReport::Part(p) if p.mode == "history" => format!("Imported {} with its feature history ({} features)", p.name, p.features_translated),
+                    rw_sw::ImportReport::Part(p) => format!("Imported {} as geometry: {}", p.name, p.notes.first().cloned().unwrap_or_default()),
+                    rw_sw::ImportReport::Assembly(a) => format!(
+                        "Imported {}: {} components, {} mates{}",
+                        a.name,
+                        a.components,
+                        a.mates_translated,
+                        if a.notes.is_empty() { String::new() } else { format!(" ({} notes in {})", a.notes.len(), out.display()) }
+                    ),
+                };
+                let _ = std::fs::write(out.join("import-report.json"), serde_json::to_string_pretty(&rep).unwrap_or_default());
+                if file.extension().is_some_and(|e| e == "rwasm") {
+                    self.open_assembly(file);
+                } else {
+                    self.open(file);
+                    self.set_asm_active(false);
+                }
+                self.notify(msg, false);
+            }
+            Err(e) => self.notify(format!("SOLIDWORKS import failed: {e:#}"), true),
+        }
+    }
+
+    fn export_solidworks(&mut self) {
+        let asm = self.asm_active;
+        let (ext, name) = if asm {
+            ("sldasm", self.asm.as_ref().map(|a| a.model.asm.name.clone()).unwrap_or_default())
+        } else {
+            ("sldprt", self.part.name.clone())
+        };
+        let Some(target) = rfd::FileDialog::new().set_file_name(format!("{name}.{ext}")).add_filter("SOLIDWORKS", &[ext]).save_file() else { return };
+        let tmp = std::env::temp_dir().join(format!("rustworks-sw-export-{}.step", std::process::id()));
+        let r = (|| -> anyhow::Result<PathBuf> {
+            if asm {
+                self.asm.as_ref().ok_or_else(|| anyhow::anyhow!("no assembly"))?.model.export_step(&tmp)?;
+            } else {
+                let body = rw_core::Regenerator::new().regenerate(&self.part).body.ok_or_else(|| anyhow::anyhow!("the part has no body"))?;
+                rw_core::kernel::write_step(&body, &tmp)?;
+            }
+            rw_sw::export_step(&tmp, &target)
+        })();
+        let _ = std::fs::remove_file(&tmp);
+        match r {
+            Ok(p) => self.notify(format!("Saved {} (SOLIDWORKS geometry)", p.display()), false),
+            Err(e) => self.notify(format!("SOLIDWORKS export failed: {e:#}"), true),
+        }
+    }
+
     /// File > New Drawing: of the active assembly, or else the open part.
     fn new_drawing(&mut self) {
         let source = if self.asm_active { self.asm.as_ref().and_then(|a| a.model.path.clone()) } else { self.path.clone() };
@@ -421,6 +477,16 @@ impl App {
                         self.open_drawing(p);
                     }
                 }
+                ui.separator();
+                if ui.button("Import SOLIDWORKS…").on_hover_text(".sldprt / .sldasm (needs SOLIDWORKS on this Windows PC) or a .swdump.json from the bridge").clicked() {
+                    if let Some(p) = rfd::FileDialog::new().add_filter("SOLIDWORKS", &["sldprt", "SLDPRT", "sldasm", "SLDASM", "json"]).pick_file() {
+                        self.import_solidworks(p);
+                    }
+                }
+                if ui.button("Export to SOLIDWORKS…").on_hover_text("Save as native .sldprt / .sldasm geometry (needs SOLIDWORKS on this Windows PC)").clicked() {
+                    self.export_solidworks();
+                }
+                ui.separator();
                 if self.asm_active && ui.button("Export Assembly STEP…").clicked() {
                     if let Some(p) = rfd::FileDialog::new().set_file_name("assembly.step").add_filter("step", &["step"]).save_file() {
                         let r = self.asm.as_ref().unwrap().model.export_step(&p);

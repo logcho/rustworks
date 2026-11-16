@@ -106,6 +106,15 @@ for fmt in ["pdf", "svg", "dxf"]:
     call("export_drawing", format=fmt)
 check(open(os.path.join(work, "stack.pdf"), "rb").read().startswith(b"%PDF"), "PDF file")
 
+# SOLIDWORKS: translate a bridge dump (no SOLIDWORKS needed) with its feature history
+repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sw, _ = call("import_solidworks", path=os.path.join(repo, "examples", "solidworks", "bracket.swdump.json"), out_dir=os.path.join(work, "sw"))
+rep = sw.get("report", {})
+check(rep.get("mode") == "history" and rep.get("features_translated") == 5, f"SOLIDWORKS dump imported with history: {rep}")
+check(abs((rep.get("rustworks_volume_mm3") or 0) - (rep.get("solidworks_volume_mm3") or 1)) < 1e-3, "SOLIDWORKS volume matches")
+p, _ = call("get_part")
+check(any(f.get("name") == "Cut-Extrude1" for f in p.get("document", {}).get("features", [])), "imported part is the active document")
+
 srv.stdin.close()
 srv.wait(timeout=60)
 if failures:

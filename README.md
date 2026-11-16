@@ -42,9 +42,10 @@ No C++ toolchain? `cargo build --release --no-default-features --features rw-ker
 
 For other MCP clients, run `target/release/rustworks-mcp [part.rwpart]` over stdio.
 
-MCP tools (46):
+MCP tools (48):
 - Parts: `new_part`, `open_part`, `get_part`, `set_parameters`, `create_sketch`, `edit_sketch` (incl. `trim`, `fillet_corners`, `offset`), `get_sketch`, `plane`, `extrude`, `revolve`, `loft`, `sweep`, `hole`, `fillet`, `chamfer`, `draft`, `shell`, `pattern_linear`, `pattern_circular`, `mirror`, `import_step`, `edit_feature` (JSON merge patch), `delete_feature`, `suppress_feature`, `list_faces`, `list_edges`.
 - Assemblies: `new_assembly`, `open_assembly`, `get_assembly`, `add_component`, `edit_component`, `remove_component`, `add_mate`, `edit_mate`, `delete_mate`, `check_interference`.
+- SOLIDWORKS: `import_solidworks`, `export_solidworks`.
 - Drawings: `create_drawing`, `open_drawing`, `edit_drawing`, `render_drawing`, `export_drawing` (PDF/SVG/DXF/PNG).
 - Both: `undo`, `redo`, `render` (PNG; face/edge index labels for parts, per-component colors for assemblies), `mass_properties`, `export` (STEP/STL/OBJ).
 
@@ -56,6 +57,7 @@ MCP tools (46):
 | `rw-kernel` | B-rep modeling on OpenCASCADE 7.8 (via `opencascade-sys`, statically linked, plus a small C++ shim in `cpp/` for drafts, B-spline edges, sweeps, face geometry and compounds): extrude, revolve, loft, sweep, booleans, fillet, chamfer, shell, draft, per-face tessellation, exact mass properties, STEP import/export. An optional pure-Rust `truck` backend is also available (≈ Parasolid) |
 | `rw-core` | `.rwpart` document, feature tree, incremental regeneration cache, undo/redo, file sync (≈ FeatureManager); `.rwasm` assemblies with a mate solver (≈ SOLIDWORKS assemblies) |
 | `rw-render` | Headless software renderer to PNG for agents |
+| `rw-sw` | SOLIDWORKS interop: translates SOLIDWORKS API dumps (from `tools/solidworks/rw_sw_bridge.py`) into parts/assemblies, with verification and STEP fallback |
 | `rw-drawing` | 2D drawings: exact hidden-line views (OpenCASCADE HLR), layout, dimensions, title block; SVG/DXF/PDF/PNG |
 | `rw-mcp` | MCP server (JSON-RPC 2.0 over stdio) |
 | `rw-app` | egui + wgpu desktop application |
@@ -70,6 +72,8 @@ Part features: Sketch (line, polyline, rectangle, circle, arc, polygon, slot, sp
 - Right-drag rotates the view. Esc cancels the current tool; Delete removes the entity under the cursor.
 
 **Assemblies** (`.rwasm`): File › New/Open Assembly. Insert Component adds a part file; the first component (or any marked Fixed) is grounded. Click a face, Shift-click a face on another component, pick a mate type (coincident, concentric, distance, parallel, perpendicular, angle) and press Add Mate: the moving part snaps into place, then all mates are solved together. Planar faces mate as planes, cylinders and cones as their axes, spheres as their centers. The tree shows each mate's status and the remaining degrees of freedom; conflicting mates turn red. Drag a part with the left mouse button to move it: mated parts slide only along their remaining degrees of freedom (a pinned part spins about its pin), and the grounded part stays put. Check Interference reports overlapping components with the overlap volume. Double-click a component to edit its part; the assembly picks up the change automatically.
+
+**SOLIDWORKS files:** File › Import SOLIDWORKS… opens `.sldprt` and `.sldasm` through SOLIDWORKS itself, via a small bridge (`tools/solidworks/`) that runs on a Windows PC with SOLIDWORKS. Parts come in with their feature history when every feature maps: sketches with dimensions, extrudes, revolves, holes, fillets, chamfers, shells, patterns and mirrors. Each rebuilt part is checked against SOLIDWORKS' volume and centre of mass, and otherwise imports as exact geometry with a report of why. Assemblies keep placements and the supported mates. Export to SOLIDWORKS saves native files as geometry. On a Mac or Linux machine, import the `.swdump.json` the bridge writes on the SOLIDWORKS PC. See [tools/solidworks/README.md](tools/solidworks/README.md).
 
 **Drawings** (`.rwdrw`): File › New Drawing makes a drawing of the active part or assembly. It shows front, top and right views in third-angle layout (first-angle optional) plus an isometric. Visible edges are solid and hidden edges dashed, computed exactly by hidden-line removal. The largest standard scale that fits the sheet (A4–A0, Letter, Tabloid) is chosen automatically, and the isometric snaps to its own standard scale. Overall dimensions, diameter callouts for round holes and bosses (grouped, e.g. "2× Ø8"), view labels and a title block (title, drawing number, scale, material, projection, date) are added automatically. Views can be added, removed, rescaled and shifted. The drawing rebuilds whenever its part or assembly changes and exports to PDF, SVG, DXF (layers VISIBLE / HIDDEN / DIM / BORDER / TEXT) and PNG.
 

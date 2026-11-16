@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 rw-core = { path = "../rw-core" }
 rw-drawing = { path = "../rw-drawing" }
+rw-sw = { path = "../rw-sw" }
 serde_json.workspace = true
 anyhow.workspace = true
 glam.workspace = true

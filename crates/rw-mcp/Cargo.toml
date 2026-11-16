@@ -12,6 +12,7 @@ path = "src/main.rs"
 rw-core = { path = "../rw-core" }
 rw-render = { path = "../rw-render" }
 rw-drawing = { path = "../rw-drawing" }
+rw-sw = { path = "../rw-sw" }
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true

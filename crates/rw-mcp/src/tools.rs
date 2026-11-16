@@ -430,6 +430,19 @@ pub fn list() -> Value {
             },"required":["format"]}
         },
         {
+            "name": "import_solidworks",
+            "description": "Import a SOLIDWORKS part (.sldprt) or assembly (.sldasm) - needs SOLIDWORKS on this Windows PC - or a .swdump.json produced by RustWorks' SOLIDWORKS bridge on another machine. Parts are rebuilt with their feature history (sketches with dimensions, extrudes, cuts, revolves, holes, fillets, chamfers, shells, patterns, mirrors) when every feature maps and the result matches SOLIDWORKS' mass properties; otherwise they come in as exact geometry and the report lists why. Assemblies keep component placements and the supported mates. The result becomes the active document.",
+            "inputSchema": {"type":"object","properties":{
+                "path":{"type":"string"},
+                "out_dir":{"type":"string","description":"Where to write the RustWorks files (default <name>-rustworks next to the source)"}
+            },"required":["path"]}
+        },
+        {
+            "name": "export_solidworks",
+            "description": "Save the active part (.sldprt) or assembly (.sldasm) as a native SOLIDWORKS file, via SOLIDWORKS on this Windows PC. Geometry only: SOLIDWORKS sees an imported body without RustWorks' feature history.",
+            "inputSchema": {"type":"object","properties":{"path":{"type":"string","description":"Target .sldprt or .sldasm"}},"required":["path"]}
+        },
+        {
             "name": "check_interference",
             "description": "Find components whose solids overlap, with the overlap volume.",
             "inputSchema": {"type":"object","properties":{}}

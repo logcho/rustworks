@@ -18,6 +18,7 @@ mkdir -p "$stage"
 cp "target/release/rustworks${exe}" "target/release/rustworks-mcp${exe}" "$stage/"
 cp README.md "$stage/"
 cp -R examples "$stage/examples"
+cp -R tools/solidworks "$stage/solidworks"
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
   app="$stage/RustWorks.app/Contents"

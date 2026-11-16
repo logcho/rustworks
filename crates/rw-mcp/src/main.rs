@@ -5,6 +5,7 @@
 
 mod asm;
 mod drawing;
+mod solidworks;
 mod tools;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -33,7 +34,11 @@ enum Reply {
 }
 
 fn main() -> Result<()> {
-    // Positional arg: optional part file to open at startup.
+    // Subcommands (SOLIDWORKS conversion), else an optional document to open.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if solidworks::cli(&args)? {
+        return Ok(());
+    }
     let mut server = Server { model: None, asm: None, focus_asm: false, drawing: None };
     if let Some(p) = std::env::args().nth(1) {
         let path = PathBuf::from(p);
@@ -135,6 +140,9 @@ impl Server {
             return r;
         }
         if let Some(r) = self.drawing_call(name, a) {
+            return r;
+        }
+        if let Some(r) = self.solidworks_call(name, a) {
             return r;
         }
         match name {
@@ -609,6 +617,9 @@ const INSTRUCTIONS: &str = "RustWorks is a parametric 3D CAD system (like SOLIDW
 (front/top/right, offset, a reference plane from the `plane` tool, or {face:N}) with geometry (lines, arcs, circles, splines, ...) + constraints; refine sketches with \
 edit_sketch (trim, fillet_corners, offset) → extrude/revolve/loft/sweep (boss or cut) → hole/patterns/mirror → fillet/chamfer (pick edges with list_edges \
 or render edge_labels) → draft/shell → render to look at it → edit_feature / set_parameters to iterate → export (step/stl). \
+SOLIDWORKS: import_solidworks reads .sldprt/.sldasm (needs SOLIDWORKS on this Windows PC) or a .swdump.json made by the bridge; \
+parts come in with their feature history when every feature maps (verified against SOLIDWORKS' mass properties), else as exact geometry - \
+read the report. export_solidworks saves the active part/assembly as native SOLIDWORKS geometry. \
 Drawings: create_drawing from the active part or assembly (standard views, auto scale, overall dimensions, hole callouts, title block) → \
 look at the returned image → edit_drawing (views, scale, sheet, title) → export_drawing (pdf/svg/dxf/png). \
 Assembly workflow: build each part file, then new_assembly → add_component (first one is grounded) → add_mate between faces (list_faces with component, or \
