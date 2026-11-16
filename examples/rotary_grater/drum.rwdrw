@@ -1,0 +1,24 @@
+{
+  "format": "rustworks-drawing/1",
+  "name": "RG-201",
+  "source": "drum.rwpart",
+  "sheet": "a3",
+  "projection": "third_angle",
+  "views": [
+    {
+      "type": "front"
+    },
+    {
+      "type": "right"
+    },
+    {
+      "type": "iso"
+    }
+  ],
+  "dimensions": true,
+  "title": {
+    "title": "GRATER DRUM",
+    "drawn_by": "Claude",
+    "material": "Stainless steel 304"
+  }
+}

@@ -327,6 +327,7 @@ fn assembly_mates_dof_interference() {
         rotation: rot,
         fixed: false,
         suppressed: false,
+        color: None,
     };
     a.components.push(comp("c1", "plate.rwpart", [0.0; 3], [0.0; 3]));
     a.components.push(comp("c2", "pin.rwpart", [50.0, 5.0, 20.0], [30.0, 0.0, 10.0]));

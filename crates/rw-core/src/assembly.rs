@@ -55,6 +55,9 @@ pub struct Component {
     pub fixed: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub suppressed: bool,
+    /// Display colour (RGB 0–1) and opacity; default: a palette colour, opaque.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<[f32; 4]>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]

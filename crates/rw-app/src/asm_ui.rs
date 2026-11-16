@@ -132,7 +132,7 @@ impl AsmUi {
         for (k, (ci, _)) in owners.iter().enumerate() {
             let c = &self.model.out.components[*ci];
             let n = c.mesh.as_ref().map_or(0, |m| m.tri_face.len());
-            let mut col = PALETTE[k % PALETTE.len()];
+            let mut col = self.model.asm.component(&c.id).and_then(|d| d.color).map(|x| [x[0], x[1], x[2]]).unwrap_or(PALETTE[k % PALETTE.len()]);
             if self.sel_comp.as_deref() == Some(c.id.as_str()) {
                 col = [col[0] * 0.75 + 0.05, col[1] * 0.75 + 0.2, col[2] * 0.75 + 0.25];
             }
@@ -264,7 +264,7 @@ impl AsmUi {
         self.edit(|a| {
             let (id, name) = a.fresh_component(&stem);
             new_id = id.clone();
-            a.components.push(Component { id, name, path: rel, position: [x, 0.0, 0.0], rotation: [0.0; 3], fixed: false, suppressed: false });
+            a.components.push(Component { id, name, path: rel, position: [x, 0.0, 0.0], rotation: [0.0; 3], fixed: false, suppressed: false, color: None });
             Ok(())
         });
         self.sel_comp = Some(new_id);

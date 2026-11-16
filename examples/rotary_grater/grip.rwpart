@@ -1,0 +1,66 @@
+{
+  "format": "rustworks-part/1",
+  "name": "grip",
+  "units": "mm",
+  "parameters": {},
+  "features": [
+    {
+      "id": "f1",
+      "name": "GripSketch",
+      "type": "sketch",
+      "plane": "right",
+      "entities": [
+        {
+          "type": "point",
+          "id": "p1",
+          "x": 0.0,
+          "y": 0.0
+        },
+        {
+          "type": "circle",
+          "id": "c2",
+          "center": "p1",
+          "radius": 11.0
+        },
+        {
+          "type": "circle",
+          "id": "c3",
+          "center": "p1",
+          "radius": 4.2
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f2",
+      "name": "Grip",
+      "type": "extrude",
+      "sketch": "f1",
+      "depth": 56.0,
+      "reverse": true,
+      "op": "boss"
+    },
+    {
+      "id": "f3",
+      "name": "GripEnd",
+      "type": "fillet",
+      "edges": [
+        {
+          "at": [
+            -56.0,
+            10.9901,
+            0.0
+          ],
+          "kind": "circle",
+          "length": 34.5471,
+          "rel": [
+            0.0,
+            1.0,
+            0.5
+          ]
+        }
+      ],
+      "radius": 4.0
+    }
+  ]
+}

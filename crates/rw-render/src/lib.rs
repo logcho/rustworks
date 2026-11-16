@@ -47,6 +47,9 @@ pub struct RenderOptions<'a> {
     pub sketches: &'a [(Vec<[f32; 3]>, bool)],
     /// Optional per-triangle base colors (e.g. one per assembly component).
     pub tri_colors: &'a [[f32; 3]],
+    /// Optional per-triangle opacity (1 = opaque); see-through triangles are
+    /// blended over the opaque scene without hiding it.
+    pub tri_alpha: &'a [f32],
 }
 
 struct Cam {
@@ -172,7 +175,13 @@ pub fn render_rgba(mesh: Option<&Mesh>, o: &RenderOptions) -> Vec<u8> {
     let base = [0.70f32, 0.75, 0.82];
     if let Some(m) = mesh {
         let sp: Vec<[f64; 3]> = m.positions.iter().map(|p| cam.project(*p)).collect();
+        // pass 0: opaque triangles (write depth); pass 1: see-through ones (blend, no depth write)
+        for pass in 0..2 {
         for (ti, t) in m.indices.chunks(3).enumerate() {
+            let alpha = o.tri_alpha.get(ti).copied().unwrap_or(1.0).clamp(0.0, 1.0);
+            if (pass == 0) != (alpha >= 0.999) {
+                continue;
+            }
             let base = o.tri_colors.get(ti).copied().unwrap_or(base);
             let (ia, ib, ic) = (t[0] as usize, t[1] as usize, t[2] as usize);
             let (a, b, c) = (sp[ia], sp[ib], sp[ic]);
@@ -201,7 +210,9 @@ pub fn render_rgba(mesh: Option<&Mesh>, o: &RenderOptions) -> Vec<u8> {
                     if z <= cv.z[i] {
                         continue;
                     }
-                    cv.z[i] = z;
+                    if pass == 0 {
+                        cv.z[i] = z;
+                    }
                     let n = norm([
                         w0 * na[0] + w1 * nb[0] + w2 * nc[0],
                         w0 * na[1] + w1 * nb[1] + w2 * nc[1],
@@ -213,9 +224,16 @@ pub fn render_rgba(mesh: Option<&Mesh>, o: &RenderOptions) -> Vec<u8> {
                     let half = norm([light[0] + fwd[0], light[1] + fwd[1], light[2] + fwd[2]]);
                     let spec = (dot(n, half).max(0.0) as f32).powf(40.0) * 0.25;
                     let k = 0.38 + 0.62 * diff;
-                    cv.rgb[i] = [base[0] * k + spec, base[1] * k + spec, base[2] * k + spec];
+                    let shaded = [base[0] * k + spec, base[1] * k + spec, base[2] * k + spec];
+                    if pass == 0 {
+                        cv.rgb[i] = shaded;
+                    } else {
+                        let old = cv.rgb[i];
+                        cv.rgb[i] = [0, 1, 2].map(|c| old[c] * (1.0 - alpha) + shaded[c] * alpha);
+                    }
                 }
             }
+        }
         }
         if o.edges {
             let bias = 1e-3 * (hi[0] - lo[0] + hi[1] - lo[1] + hi[2] - lo[2]).max(1e-6);

@@ -1,0 +1,333 @@
+{
+  "format": "rustworks-part/1",
+  "name": "base",
+  "units": "mm",
+  "parameters": {},
+  "features": [
+    {
+      "id": "f1",
+      "name": "FootProfile",
+      "type": "sketch",
+      "plane": "front",
+      "entities": [
+        {
+          "type": "point",
+          "id": "p1",
+          "x": 0.0,
+          "y": 0.0
+        },
+        {
+          "type": "point",
+          "id": "p2",
+          "x": 52.0,
+          "y": 0.0
+        },
+        {
+          "type": "line",
+          "id": "l3",
+          "start": "p1",
+          "end": "p2"
+        },
+        {
+          "type": "point",
+          "id": "p4",
+          "x": 50.0,
+          "y": 6.0
+        },
+        {
+          "type": "line",
+          "id": "l5",
+          "start": "p2",
+          "end": "p4"
+        },
+        {
+          "type": "point",
+          "id": "p6",
+          "x": 45.0,
+          "y": 10.0
+        },
+        {
+          "type": "line",
+          "id": "l7",
+          "start": "p4",
+          "end": "p6"
+        },
+        {
+          "type": "point",
+          "id": "p8",
+          "x": 0.0,
+          "y": 10.0
+        },
+        {
+          "type": "line",
+          "id": "l9",
+          "start": "p6",
+          "end": "p8"
+        },
+        {
+          "type": "line",
+          "id": "l10",
+          "start": "p8",
+          "end": "p1"
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f2",
+      "name": "SuctionFoot",
+      "type": "revolve",
+      "sketch": "f1",
+      "axis": "y_axis",
+      "angle": 360.0,
+      "op": "boss"
+    },
+    {
+      "id": "f3",
+      "name": "BodyProfile",
+      "type": "sketch",
+      "plane": "front",
+      "entities": [
+        {
+          "type": "point",
+          "id": "p1",
+          "x": 0.0,
+          "y": 10.0
+        },
+        {
+          "type": "point",
+          "id": "p2",
+          "x": 44.0,
+          "y": 10.0
+        },
+        {
+          "type": "line",
+          "id": "l3",
+          "start": "p1",
+          "end": "p2"
+        },
+        {
+          "type": "point",
+          "id": "p4",
+          "x": 30.0,
+          "y": 104.0
+        },
+        {
+          "type": "line",
+          "id": "l5",
+          "start": "p2",
+          "end": "p4"
+        },
+        {
+          "type": "point",
+          "id": "p6",
+          "x": 0.0,
+          "y": 104.0
+        },
+        {
+          "type": "line",
+          "id": "l7",
+          "start": "p4",
+          "end": "p6"
+        },
+        {
+          "type": "line",
+          "id": "l8",
+          "start": "p6",
+          "end": "p1"
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f4",
+      "name": "Body",
+      "type": "revolve",
+      "sketch": "f3",
+      "axis": "y_axis",
+      "angle": 360.0,
+      "op": "boss"
+    },
+    {
+      "id": "f5",
+      "name": "CradleSketch",
+      "type": "sketch",
+      "plane": {
+        "base": "top",
+        "offset": 96.0
+      },
+      "entities": [
+        {
+          "type": "point",
+          "id": "p1",
+          "x": -34.0,
+          "y": -30.0
+        },
+        {
+          "type": "point",
+          "id": "p2",
+          "x": 34.0,
+          "y": -30.0
+        },
+        {
+          "type": "line",
+          "id": "l3",
+          "start": "p1",
+          "end": "p2"
+        },
+        {
+          "type": "point",
+          "id": "p4",
+          "x": 34.0,
+          "y": 30.0
+        },
+        {
+          "type": "line",
+          "id": "l5",
+          "start": "p2",
+          "end": "p4"
+        },
+        {
+          "type": "point",
+          "id": "p6",
+          "x": -34.0,
+          "y": 30.0
+        },
+        {
+          "type": "line",
+          "id": "l7",
+          "start": "p4",
+          "end": "p6"
+        },
+        {
+          "type": "line",
+          "id": "l8",
+          "start": "p6",
+          "end": "p1"
+        }
+      ],
+      "constraints": [
+        {
+          "type": "horizontal",
+          "line": "l3"
+        },
+        {
+          "type": "horizontal",
+          "line": "l7"
+        },
+        {
+          "type": "vertical",
+          "line": "l5"
+        },
+        {
+          "type": "vertical",
+          "line": "l8"
+        }
+      ]
+    },
+    {
+      "id": "f6",
+      "name": "Cradle",
+      "type": "extrude",
+      "sketch": "f5",
+      "depth": 30.0,
+      "op": "boss"
+    },
+    {
+      "id": "f7",
+      "name": "SaddleSketch",
+      "type": "sketch",
+      "plane": {
+        "base": "right",
+        "offset": -40.0
+      },
+      "entities": [
+        {
+          "type": "point",
+          "id": "p1",
+          "x": 0.0,
+          "y": 140.0
+        },
+        {
+          "type": "circle",
+          "id": "c2",
+          "center": "p1",
+          "radius": 40.4
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f8",
+      "name": "Saddle",
+      "type": "extrude",
+      "sketch": "f7",
+      "depth": 80.0,
+      "op": "cut"
+    },
+    {
+      "id": "f9",
+      "name": "CradleRound",
+      "type": "fillet",
+      "edges": [
+        {
+          "at": [
+            34.0,
+            104.4708,
+            30.0
+          ],
+          "kind": "line",
+          "length": 16.9415,
+          "rel": [
+            0.8269,
+            0.925,
+            0.7885
+          ]
+        },
+        {
+          "at": [
+            -34.0,
+            104.4708,
+            30.0
+          ],
+          "kind": "line",
+          "length": 16.9415,
+          "rel": [
+            0.173,
+            0.925,
+            0.7885
+          ]
+        },
+        {
+          "at": [
+            34.0,
+            104.4708,
+            -30.0
+          ],
+          "kind": "line",
+          "length": 16.9415,
+          "rel": [
+            0.8269,
+            0.925,
+            0.2115
+          ]
+        },
+        {
+          "at": [
+            -34.0,
+            104.4708,
+            -30.0
+          ],
+          "kind": "line",
+          "length": 16.9415,
+          "rel": [
+            0.173,
+            0.925,
+            0.2115
+          ]
+        }
+      ],
+      "radius": 8.0
+    }
+  ]
+}

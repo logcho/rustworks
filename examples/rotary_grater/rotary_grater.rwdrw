@@ -1,0 +1,30 @@
+{
+  "format": "rustworks-drawing/1",
+  "name": "RG-200",
+  "source": "rotary_grater.rwasm",
+  "sheet": "a3",
+  "projection": "third_angle",
+  "views": [
+    {
+      "type": "front",
+      "hidden_lines": false
+    },
+    {
+      "type": "top",
+      "hidden_lines": false
+    },
+    {
+      "type": "right",
+      "hidden_lines": false
+    },
+    {
+      "type": "iso"
+    }
+  ],
+  "dimensions": true,
+  "title": {
+    "title": "ROTARY CHEESE GRATER",
+    "drawn_by": "Claude",
+    "material": "ABS / PC / SS304"
+  }
+}

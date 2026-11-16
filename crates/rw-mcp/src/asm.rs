@@ -89,13 +89,14 @@ impl Server {
                 let rotation: [f64; 3] = opt(a, "rotation")?.unwrap_or([0.0; 3]);
                 let fixed: bool = opt(a, "fixed")?.unwrap_or(false);
                 let name: Option<String> = opt(a, "name")?;
+                let color = parse_color(a)?;
                 self.focus_asm = true;
                 let m = self.asm()?;
                 let rel = relative_part_path(&m.base(), &part);
                 let stem = part.file_stem().and_then(|s| s.to_str()).unwrap_or("part").to_string();
                 let id = m.edit(|asm| {
                     let (id, auto) = asm.fresh_component(&stem);
-                    asm.components.push(Component { id: id.clone(), name: name.unwrap_or(auto), path: rel, position, rotation, fixed, suppressed: false });
+                    asm.components.push(Component { id: id.clone(), name: name.unwrap_or(auto), path: rel, position, rotation, fixed, suppressed: false, color });
                     Ok(id)
                 })?;
                 let faces = m.out.components.iter().find(|c| c.id == id).and_then(|c| c.mesh.as_ref()).map(|me| me.faces.len());
@@ -109,6 +110,7 @@ impl Server {
                 let sup: Option<bool> = opt(a, "suppressed")?;
                 let nm: Option<String> = opt(a, "name")?;
                 let part: Option<PathBuf> = opt(a, "part")?;
+                let color = parse_color(a)?;
                 let m = self.asm()?;
                 let base = m.base();
                 m.edit(|asm| {
@@ -127,6 +129,9 @@ impl Server {
                     }
                     if let Some(n) = nm {
                         c.name = n;
+                    }
+                    if color.is_some() {
+                        c.color = color;
                     }
                     if let Some(p) = &part {
                         if !p.exists() {
@@ -246,19 +251,23 @@ impl Server {
                 let m = self.asm()?;
                 let (mesh, _) = m.out.merged_mesh();
                 let mut colors = vec![];
+                let mut alpha = vec![];
                 let mut k = 0;
                 let mut legend = vec![];
                 for c in m.out.components.iter().filter(|c| !c.suppressed) {
                     if let Some(me) = &c.mesh {
-                        let col = PALETTE[k % PALETTE.len()];
+                        let custom = m.asm.component(&c.id).and_then(|d| d.color);
+                        let col = custom.map(|x| [x[0], x[1], x[2]]).unwrap_or(PALETTE[k % PALETTE.len()]);
+                        let a = custom.map_or(1.0, |x| x[3]);
                         colors.extend(std::iter::repeat_n(col, me.tri_face.len()));
-                        legend.push(json!({"component": c.id, "name": c.name, "color_rgb": col.map(|v| (v * 255.0).round() as u8)}));
+                        alpha.extend(std::iter::repeat_n(a, me.tri_face.len()));
+                        legend.push(json!({"component": c.id, "name": c.name, "color_rgb": col.map(|v| (v * 255.0).round() as u8), "opacity": a}));
                         k += 1;
                     }
                 }
                 let png = rw_render::render_png(
                     Some(&mesh),
-                    &rw_render::RenderOptions { width: w, height: h, view, edges, face_labels: false, edge_labels: false, sketches: &[], tri_colors: &colors },
+                    &rw_render::RenderOptions { width: w, height: h, view, edges, face_labels: false, edge_labels: false, sketches: &[], tri_colors: &colors, tri_alpha: &alpha },
                 );
                 Ok(Reply::TextAndImage(asm_summary(m, json!({"view": format!("{view:?}"), "legend": legend})), png))
             }
@@ -353,4 +362,31 @@ fn asm_summary(m: &AsmModel, mut v: J) -> J {
             .collect::<Vec<_>>()),
     );
     v
+}
+
+/// `color`: "#rrggbb", "#rrggbbaa" or [r, g, b(, a)] in 0–1; `opacity` overrides alpha.
+fn parse_color(a: &J) -> Result<Option<[f32; 4]>> {
+    let mut c: Option<[f32; 4]> = match a.get("color") {
+        None | Some(J::Null) => None,
+        Some(J::String(s)) => {
+            let h = s.trim_start_matches('#');
+            let byte = |i: usize| u8::from_str_radix(h.get(i..i + 2).unwrap_or("ff"), 16).map(|b| b as f32 / 255.0);
+            if h.len() != 6 && h.len() != 8 {
+                bail!("color must be #rrggbb or #rrggbbaa");
+            }
+            Some([byte(0)?, byte(2)?, byte(4)?, if h.len() == 8 { byte(6)? } else { 1.0 }])
+        }
+        Some(v) => {
+            let x: Vec<f32> = serde_json::from_value(v.clone()).context("color must be \"#rrggbb\" or [r, g, b, a] (0-1)")?;
+            if x.len() < 3 {
+                bail!("color needs at least r, g, b");
+            }
+            Some([x[0], x[1], x[2], x.get(3).copied().unwrap_or(1.0)])
+        }
+    };
+    if let Some(o) = opt::<f32>(a, "opacity")? {
+        let base = c.unwrap_or([0.7, 0.75, 0.82, 1.0]);
+        c = Some([base[0], base[1], base[2], o.clamp(0.05, 1.0)]);
+    }
+    Ok(c)
 }

@@ -336,18 +336,22 @@ pub fn list() -> Value {
                 "position": v3.clone(),
                 "rotation":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3,"description":"Rotation vector: axis × angle in degrees, e.g. [90,0,0] = 90° about X"},
                 "fixed":{"type":"boolean"},
+                "color":{"description":"Display colour: \"#rrggbb\" / \"#rrggbbaa\" or [r,g,b,a] (0-1)"},
+                "opacity":{"type":"number","description":"0-1; below 1 renders see-through (e.g. clear plastic)"},
                 "name":{"type":"string"}
             },"required":["part"]}
         },
         {
             "name": "edit_component",
-            "description": "Move, fix/float, suppress, rename or swap the part file of a component. Mates re-solve afterwards (placements of mated components are recomputed).",
+            "description": "Move, fix/float, suppress, recolour, rename or swap the part file of a component. Mates re-solve afterwards (placements of mated components are recomputed).",
             "inputSchema": {"type":"object","properties":{
                 "component":{"type":"string"},
                 "position": v3.clone(),
                 "rotation": v3.clone(),
                 "fixed":{"type":"boolean"},
                 "suppressed":{"type":"boolean"},
+                "color":{"description":"Display colour: \"#rrggbb\" / \"#rrggbbaa\" or [r,g,b,a] (0-1)"},
+                "opacity":{"type":"number","description":"0-1; below 1 renders see-through (e.g. clear plastic)"},
                 "name":{"type":"string"},
                 "part":{"type":"string"}
             },"required":["component"]}

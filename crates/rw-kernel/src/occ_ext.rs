@@ -17,6 +17,8 @@ pub(crate) mod ext {
         fn rw_compound_new() -> UniquePtr<TopoDS_Shape>;
         fn rw_compound_add(c: Pin<&mut TopoDS_Shape>, s: &TopoDS_Shape);
         fn rw_hlr(s: &TopoDS_Shape, axes: &[f64], visible: Pin<&mut TopoDS_Shape>, hidden: Pin<&mut TopoDS_Shape>) -> Result<()>;
+        fn rw_hlr_poly(s: &TopoDS_Shape, axes: &[f64], deflection: f64, visible: Pin<&mut TopoDS_Shape>, hidden: Pin<&mut TopoDS_Shape>) -> Result<()>;
+        fn rw_freeform_edge_count(s: &TopoDS_Shape) -> i32;
         fn rw_transform(s: &TopoDS_Shape, m: &[f64]) -> Result<UniquePtr<TopoDS_Shape>>;
     }
 }

@@ -673,26 +673,43 @@ fn frame(sheet: &mut Sheet, d: &Drawing, model_name: &str, source: &str) {
         sheet.lines.push(SLine { pts: vec![[*c, y0], [*c, r2]], pen: Pen::Thin });
     }
     let title = d.title.title.clone().unwrap_or_else(|| model_name.to_uppercase());
-    sheet.texts.push(SText { at: [x0 + 3.0, r2 + 4.0], size: 5.0, text: title, anchor: Anchor::Start, rotate: 0.0 });
+    let (tsize, title) = fit_text(&title, TITLE_W - 40.0, 5.0, 3.0);
+    sheet.texts.push(SText { at: [x0 + 3.0, r2 + 4.0], size: tsize, text: title, anchor: Anchor::Start, rotate: 0.0 });
     sheet.texts.push(SText { at: [w - MARGIN - 3.0, r2 + 4.0], size: 2.5, text: d.name.clone(), anchor: Anchor::End, rotate: 0.0 });
-    let field = |sheet: &mut Sheet, x: f64, y: f64, label: &str, value: String| {
+    let field = |sheet: &mut Sheet, x: f64, y: f64, w: f64, label: &str, value: String| {
         sheet.texts.push(SText { at: [x + 1.5, y + 8.2], size: 1.8, text: label.to_string(), anchor: Anchor::Start, rotate: 0.0 });
-        sheet.texts.push(SText { at: [x + 1.5, y + 2.5], size: 3.0, text: value, anchor: Anchor::Start, rotate: 0.0 });
+        let (size, text) = fit_text(&value, w - 5.0, 3.0, 1.8);
+        sheet.texts.push(SText { at: [x + 1.5, y + 2.5], size, text, anchor: Anchor::Start, rotate: 0.0 });
     };
     let proj = if d.projection == Projection::ThirdAngle { "THIRD ANGLE" } else { "FIRST ANGLE" };
-    field(sheet, cols[0], r1, "SOURCE", short(source, 30));
-    field(sheet, cols[1], r1, "SCALE", scale_text(sheet.scale));
-    field(sheet, cols[2], r1, "UNITS", "mm".into());
-    field(sheet, cols[3], r1, "SHEET", format!("{:?}", d.sheet).to_uppercase());
-    field(sheet, cols[0], y0, "DRAWN BY", d.title.drawn_by.clone().unwrap_or_else(|| "RustWorks".into()));
-    field(sheet, cols[1], y0, "MATERIAL", d.title.material.clone().unwrap_or_else(|| "-".into()));
-    field(sheet, cols[2], y0, "PROJECTION", proj.into());
-    field(sheet, cols[3], y0, "DATE", today());
+    field(sheet, cols[0], r1, cols[1] - cols[0], "SOURCE", short(source, 30));
+    field(sheet, cols[1], r1, cols[2] - cols[1], "SCALE", scale_text(sheet.scale));
+    field(sheet, cols[2], r1, cols[3] - cols[2], "UNITS", "mm".into());
+    field(sheet, cols[3], r1, cols[4] - cols[3], "SHEET", format!("{:?}", d.sheet).to_uppercase());
+    field(sheet, cols[0], y0, cols[1] - cols[0], "DRAWN BY", d.title.drawn_by.clone().unwrap_or_else(|| "RustWorks".into()));
+    field(sheet, cols[1], y0, cols[2] - cols[1], "MATERIAL", d.title.material.clone().unwrap_or_else(|| "-".into()));
+    field(sheet, cols[2], y0, cols[3] - cols[2], "PROJECTION", proj.into());
+    field(sheet, cols[3], y0, cols[4] - cols[3], "DATE", today());
     if let Some(n) = &d.title.notes {
         for (i, line) in n.lines().enumerate() {
             sheet.texts.push(SText { at: [MARGIN + 4.0, MARGIN + 4.0 + 5.0 * (n.lines().count() - 1 - i) as f64], size: 3.0, text: line.to_string(), anchor: Anchor::Start, rotate: 0.0 });
         }
     }
+}
+
+/// Shrinks text (down to `min` mm) and then truncates it with "…" so it fits `width` mm.
+fn fit_text(text: &str, width: f64, size: f64, min: f64) -> (f64, String) {
+    // average glyph advance ≈ 0.6 × character height for the drawing fonts
+    let w = |t: &str, s: f64| t.chars().count() as f64 * s * 0.65;
+    if w(text, size) <= width {
+        return (size, text.to_string());
+    }
+    let s = (size * width / w(text, size)).max(min);
+    if w(text, s) <= width {
+        return (s, text.to_string());
+    }
+    let n = ((width / (s * 0.65)) as usize).saturating_sub(1).max(1);
+    (s, format!("{}…", text.chars().take(n).collect::<String>().trim_end()))
 }
 
 fn short(s: &str, n: usize) -> String {

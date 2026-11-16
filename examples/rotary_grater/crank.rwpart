@@ -1,0 +1,253 @@
+{
+  "format": "rustworks-part/1",
+  "name": "crank",
+  "units": "mm",
+  "parameters": {},
+  "features": [
+    {
+      "id": "f1",
+      "name": "HubSketch",
+      "type": "sketch",
+      "plane": "right",
+      "entities": [
+        {
+          "type": "point",
+          "id": "p1",
+          "x": 0.0,
+          "y": 0.0
+        },
+        {
+          "type": "circle",
+          "id": "c2",
+          "center": "p1",
+          "radius": 15.0
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f2",
+      "name": "Hub",
+      "type": "extrude",
+      "sketch": "f1",
+      "depth": 24.0,
+      "reverse": true,
+      "op": "boss"
+    },
+    {
+      "id": "f3",
+      "name": "SocketSketch",
+      "type": "sketch",
+      "plane": "right",
+      "entities": [
+        {
+          "type": "point",
+          "id": "p1",
+          "x": -5.2,
+          "y": -5.2
+        },
+        {
+          "type": "point",
+          "id": "p2",
+          "x": 5.2,
+          "y": -5.2
+        },
+        {
+          "type": "line",
+          "id": "l3",
+          "start": "p1",
+          "end": "p2"
+        },
+        {
+          "type": "point",
+          "id": "p4",
+          "x": 5.2,
+          "y": 5.2
+        },
+        {
+          "type": "line",
+          "id": "l5",
+          "start": "p2",
+          "end": "p4"
+        },
+        {
+          "type": "point",
+          "id": "p6",
+          "x": -5.2,
+          "y": 5.2
+        },
+        {
+          "type": "line",
+          "id": "l7",
+          "start": "p4",
+          "end": "p6"
+        },
+        {
+          "type": "line",
+          "id": "l8",
+          "start": "p6",
+          "end": "p1"
+        }
+      ],
+      "constraints": [
+        {
+          "type": "horizontal",
+          "line": "l3"
+        },
+        {
+          "type": "horizontal",
+          "line": "l7"
+        },
+        {
+          "type": "vertical",
+          "line": "l5"
+        },
+        {
+          "type": "vertical",
+          "line": "l8"
+        }
+      ]
+    },
+    {
+      "id": "f4",
+      "name": "Socket",
+      "type": "extrude",
+      "sketch": "f3",
+      "depth": 20.0,
+      "reverse": true,
+      "op": "cut"
+    },
+    {
+      "id": "f5",
+      "name": "ArmSketch",
+      "type": "sketch",
+      "plane": {
+        "base": "right",
+        "offset": -24.0
+      },
+      "entities": [
+        {
+          "type": "point",
+          "id": "p1",
+          "x": -14.0,
+          "y": 0.0
+        },
+        {
+          "type": "point",
+          "id": "p2",
+          "x": -14.0,
+          "y": -140.0
+        },
+        {
+          "type": "line",
+          "id": "l3",
+          "start": "p1",
+          "end": "p2"
+        },
+        {
+          "type": "point",
+          "id": "p4",
+          "x": 0.0,
+          "y": -140.0
+        },
+        {
+          "type": "point",
+          "id": "p5",
+          "x": 14.0,
+          "y": -140.0
+        },
+        {
+          "type": "arc",
+          "id": "a6",
+          "center": "p4",
+          "start": "p2",
+          "end": "p5"
+        },
+        {
+          "type": "point",
+          "id": "p7",
+          "x": 14.0,
+          "y": 0.0
+        },
+        {
+          "type": "line",
+          "id": "l8",
+          "start": "p5",
+          "end": "p7"
+        },
+        {
+          "type": "point",
+          "id": "p9",
+          "x": 0.0,
+          "y": 0.0
+        },
+        {
+          "type": "arc",
+          "id": "a10",
+          "center": "p9",
+          "start": "p7",
+          "end": "p1"
+        }
+      ],
+      "constraints": [
+        {
+          "type": "tangent",
+          "a": "l3",
+          "b": "a6"
+        },
+        {
+          "type": "tangent",
+          "a": "l8",
+          "b": "a10"
+        },
+        {
+          "type": "equal",
+          "a": "a6",
+          "b": "a10"
+        }
+      ]
+    },
+    {
+      "id": "f6",
+      "name": "Arm",
+      "type": "extrude",
+      "sketch": "f5",
+      "depth": 8.0,
+      "reverse": true,
+      "op": "boss"
+    },
+    {
+      "id": "f7",
+      "name": "PinSketch",
+      "type": "sketch",
+      "plane": {
+        "base": "right",
+        "offset": -32.0
+      },
+      "entities": [
+        {
+          "type": "point",
+          "id": "p1",
+          "x": 0.0,
+          "y": -128.0
+        },
+        {
+          "type": "circle",
+          "id": "c2",
+          "center": "p1",
+          "radius": 4.0
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f8",
+      "name": "GripPin",
+      "type": "extrude",
+      "sketch": "f7",
+      "depth": 55.0,
+      "reverse": true,
+      "op": "boss"
+    }
+  ]
+}

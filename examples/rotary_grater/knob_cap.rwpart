@@ -1,0 +1,40 @@
+{
+  "format": "rustworks-part/1",
+  "name": "knob_cap",
+  "units": "mm",
+  "parameters": {},
+  "features": [
+    {
+      "id": "f1",
+      "name": "CapSketch",
+      "type": "sketch",
+      "plane": {
+        "base": "front",
+        "offset": 50.5
+      },
+      "entities": [
+        {
+          "type": "point",
+          "id": "p1",
+          "x": 0.0,
+          "y": 62.0
+        },
+        {
+          "type": "circle",
+          "id": "c2",
+          "center": "p1",
+          "radius": 7.0
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f2",
+      "name": "Cap",
+      "type": "extrude",
+      "sketch": "f1",
+      "depth": 1.2,
+      "op": "boss"
+    }
+  ]
+}

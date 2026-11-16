@@ -1,10 +1,14 @@
 #include "rw-kernel/cpp/rw_occ.h"
 
+#include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepLib.hxx>
 #include <HLRAlgo_Projector.hxx>
 #include <HLRBRep_Algo.hxx>
 #include <HLRBRep_HLRToShape.hxx>
+#include <BRepMesh_IncrementalMesh.hxx>
+#include <HLRBRep_PolyAlgo.hxx>
+#include <HLRBRep_PolyHLRToShape.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepOffsetAPI_DraftAngle.hxx>
@@ -212,4 +216,56 @@ void rw_hlr(const TopoDS_Shape &s, rust::Slice<const double> ax, TopoDS_Shape &v
   } catch (const Standard_Failure &e) {
     fail("hidden-line removal: " + occ_msg(e));
   }
+}
+
+// Mesh-based hidden-line removal: much faster than the exact algorithm on
+// complex shapes; edges come back as polylines within `deflection`.
+void rw_hlr_poly(const TopoDS_Shape &s, rust::Slice<const double> ax, double deflection, TopoDS_Shape &visible,
+                 TopoDS_Shape &hidden) {
+  if (ax.size() != 6) fail("hlr: needs view and x directions");
+  try {
+    BRepMesh_IncrementalMesh mesh(s, deflection, false, 0.35, true);
+    gp_Ax2 a(gp_Pnt(0, 0, 0), gp_Dir(ax[0], ax[1], ax[2]), gp_Dir(ax[3], ax[4], ax[5]));
+    Handle(HLRBRep_PolyAlgo) h = new HLRBRep_PolyAlgo(s);
+    h->Projector(HLRAlgo_Projector(a));
+    h->Update();
+    HLRBRep_PolyHLRToShape t;
+    t.Update(h);
+    BRep_Builder b;
+    TopoDS_Compound v, hd;
+    b.MakeCompound(v);
+    b.MakeCompound(hd);
+    auto put = [&](TopoDS_Compound &c, const TopoDS_Shape &x) {
+      if (!x.IsNull()) {
+        BRepLib::BuildCurves3d(x);
+        b.Add(c, x);
+      }
+    };
+    put(v, t.VCompound());
+    put(v, t.OutLineVCompound());
+    put(v, t.Rg1LineVCompound());
+    put(hd, t.HCompound());
+    put(hd, t.OutLineHCompound());
+    visible = v;
+    hidden = hd;
+  } catch (const Standard_Failure &e) {
+    fail("hidden-line removal (mesh): " + occ_msg(e));
+  }
+}
+
+// Edges that are not lines or circles (e.g. holes meeting a curved wall):
+// these are what make exact hidden-line removal slow.
+int32_t rw_freeform_edge_count(const TopoDS_Shape &s) {
+  TopTools_IndexedMapOfShape map;
+  TopExp::MapShapes(s, TopAbs_EDGE, map);
+  int32_t n = 0;
+  for (int i = 1; i <= map.Extent(); i++) {
+    try {
+      BRepAdaptor_Curve c(TopoDS::Edge(map(i)));
+      GeomAbs_CurveType t = c.GetType();
+      if (t != GeomAbs_Line && t != GeomAbs_Circle) n++;
+    } catch (const Standard_Failure &) {
+    }
+  }
+  return n;
 }

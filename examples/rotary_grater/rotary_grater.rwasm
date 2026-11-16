@@ -1,0 +1,313 @@
+{
+  "format": "rustworks-assembly/1",
+  "name": "rotary_grater",
+  "components": [
+    {
+      "id": "c1",
+      "name": "base<1>",
+      "path": "base.rwpart",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "fixed": true,
+      "color": [
+        0.11372549,
+        0.11372549,
+        0.1254902,
+        1.0
+      ]
+    },
+    {
+      "id": "c2",
+      "name": "lock_knob<1>",
+      "path": "lock_knob.rwpart",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "fixed": true,
+      "color": [
+        0.9490196,
+        0.9490196,
+        0.93333334,
+        1.0
+      ]
+    },
+    {
+      "id": "c3",
+      "name": "knob_cap<1>",
+      "path": "knob_cap.rwpart",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "fixed": true,
+      "color": [
+        0.08235294,
+        0.08235294,
+        0.09019608,
+        1.0
+      ]
+    },
+    {
+      "id": "c4",
+      "name": "housing<1>",
+      "path": "housing.rwpart",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "fixed": true,
+      "color": [
+        0.86,
+        0.92,
+        0.98,
+        0.2
+      ]
+    },
+    {
+      "id": "c5",
+      "name": "drum<1>",
+      "path": "drum.rwpart",
+      "position": [
+        -51.204355,
+        140.0,
+        0.0
+      ],
+      "rotation": [
+        -34.120526,
+        0.0,
+        0.0
+      ],
+      "color": [
+        0.78431374,
+        0.8,
+        0.8235294,
+        1.0
+      ]
+    },
+    {
+      "id": "c6",
+      "name": "crank<1>",
+      "path": "crank.rwpart",
+      "position": [
+        -62.000002,
+        139.999999,
+        0.0
+      ],
+      "rotation": [
+        -34.120526,
+        0.0,
+        0.0
+      ],
+      "color": [
+        0.95686275,
+        0.95686275,
+        0.9411765,
+        1.0
+      ]
+    },
+    {
+      "id": "c7",
+      "name": "grip<1>",
+      "path": "grip.rwpart",
+      "position": [
+        -94.000003,
+        34.033991,
+        71.799757
+      ],
+      "rotation": [
+        -61.528885,
+        0.0,
+        0.0
+      ],
+      "color": [
+        0.09411765,
+        0.09411765,
+        0.101960786,
+        1.0
+      ]
+    },
+    {
+      "id": "c8",
+      "name": "pusher<1>",
+      "path": "pusher.rwpart",
+      "position": [
+        -10.0,
+        182.0,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "fixed": true,
+      "color": [
+        0.1254902,
+        0.1254902,
+        0.13725491,
+        1.0
+      ]
+    }
+  ],
+  "mates": [
+    {
+      "id": "m1",
+      "name": "DrumOnShaftHole",
+      "type": "concentric",
+      "a": {
+        "component": "c5",
+        "axis": "x"
+      },
+      "b": {
+        "component": "c4",
+        "face": [
+          -60.0,
+          148.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "m2",
+      "name": "DrumClearance",
+      "type": "distance",
+      "a": {
+        "component": "c4",
+        "face": [
+          -58.0,
+          165.0,
+          0.0
+        ]
+      },
+      "b": {
+        "component": "c5",
+        "face": [
+          -6.0,
+          9.0,
+          0.0
+        ]
+      },
+      "value": 1.0
+    },
+    {
+      "id": "m3",
+      "name": "CrankOnDrum",
+      "type": "concentric",
+      "a": {
+        "component": "c6",
+        "axis": "x"
+      },
+      "b": {
+        "component": "c5",
+        "axis": "x"
+      }
+    },
+    {
+      "id": "m4",
+      "name": "CrankAgainstHousing",
+      "type": "coincident",
+      "a": {
+        "component": "c6",
+        "face": [
+          0.0,
+          10.0,
+          0.0
+        ]
+      },
+      "b": {
+        "component": "c4",
+        "face": [
+          -62.0,
+          165.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "m5",
+      "name": "SquareDrive",
+      "type": "parallel",
+      "a": {
+        "component": "c6",
+        "face": [
+          -10.0,
+          5.2,
+          0.0
+        ]
+      },
+      "b": {
+        "component": "c5",
+        "face": [
+          -15.0,
+          5.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "m6",
+      "name": "GripOnPin",
+      "type": "concentric",
+      "a": {
+        "component": "c7",
+        "axis": "x"
+      },
+      "b": {
+        "component": "c6",
+        "face": [
+          -60.0,
+          -124.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "m7",
+      "name": "GripAgainstArm",
+      "type": "coincident",
+      "a": {
+        "component": "c7",
+        "face": [
+          0.0,
+          8.0,
+          0.0
+        ]
+      },
+      "b": {
+        "component": "c6",
+        "face": [
+          -32.0,
+          -100.0,
+          0.0
+        ]
+      }
+    }
+  ]
+}

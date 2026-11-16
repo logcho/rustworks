@@ -561,7 +561,7 @@ impl Server {
                 }
                 let png = rw_render::render_png(
                     m.out.mesh.as_ref(),
-                    &rw_render::RenderOptions { width: w, height: h, view, edges, face_labels: labels, edge_labels, sketches: &lines, tri_colors: &[] },
+                    &rw_render::RenderOptions { width: w, height: h, view, edges, face_labels: labels, edge_labels, sketches: &lines, tri_colors: &[], tri_alpha: &[] },
                 );
                 Ok(Reply::TextAndImage(summary(m, json!({"view": format!("{view:?}")})), png))
             }

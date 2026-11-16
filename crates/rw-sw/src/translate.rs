@@ -658,6 +658,7 @@ pub fn translate_assembly(d: &Dump, dump_dir: &Path, out_dir: &Path) -> Result<A
             rotation,
             fixed: c.fixed,
             suppressed: c.suppressed,
+            color: None,
         });
     }
     rep.components = asm.components.len();

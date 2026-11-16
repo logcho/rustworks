@@ -649,12 +649,23 @@ pub fn overlap_volume(a: &Solid, b: &Solid) -> f64 {
     volume(c.pin_mut().Shape()).abs()
 }
 
+/// Above this many free-form (non-line, non-circle) edges, drawings use
+/// mesh-based hidden-line removal (exact HLR gets very slow on them).
+pub const HLR_EXACT_MAX_FREEFORM: i32 = 120;
+
 /// Hidden-line projection of a solid: (visible, hidden) edges in the view plane.
 pub fn hlr(s: &Solid, v: ViewAxes) -> Result<(Vec<Edge2>, Vec<Edge2>)> {
     let mut vis = ext::rw_compound_new();
     let mut hid = ext::rw_compound_new();
     let ax = [v.dir[0], v.dir[1], v.dir[2], v.x[0], v.x[1], v.x[2]];
-    ext::rw_hlr(&s.inner, &ax, vis.pin_mut(), hid.pin_mut()).map_err(|e| anyhow::anyhow!("{}", e.what()))?;
+    // Exact HLR is precise but scales badly; complex shapes use the
+    // mesh-based algorithm (deviation far below a drawing's line width).
+    if ext::rw_freeform_edge_count(&s.inner) > HLR_EXACT_MAX_FREEFORM {
+        let defl = (scale_of(s) / 4000.0).max(1e-3);
+        ext::rw_hlr_poly(&s.inner, &ax, defl, vis.pin_mut(), hid.pin_mut()).map_err(|e| anyhow::anyhow!("{}", e.what()))?;
+    } else {
+        ext::rw_hlr(&s.inner, &ax, vis.pin_mut(), hid.pin_mut()).map_err(|e| anyhow::anyhow!("{}", e.what()))?;
+    }
     let conv = |c: UniquePtr<TopoDS_Shape>| -> Vec<Edge2> {
         edge_polylines(&Solid { inner: c }, 0.05)
             .into_iter()
