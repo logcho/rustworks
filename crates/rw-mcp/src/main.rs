@@ -846,9 +846,20 @@ fn protocol_stdout() -> std::io::BufWriter<std::fs::File> {
     }
 }
 
-#[cfg(not(unix))]
-fn protocol_stdout() -> std::io::Stdout {
-    std::io::stdout()
+#[cfg(windows)]
+fn protocol_stdout() -> std::io::BufWriter<std::fs::File> {
+    use std::os::windows::io::FromRawHandle;
+    unsafe {
+        let fd = libc::dup(1);
+        if fd >= 0 && libc::dup2(2, 1) >= 0 {
+            let h = libc::get_osfhandle(fd);
+            if h != -1 {
+                return std::io::BufWriter::new(std::fs::File::from_raw_handle(h as _));
+            }
+        }
+        let h = libc::get_osfhandle(1);
+        std::io::BufWriter::new(std::fs::File::from_raw_handle(h as _))
+    }
 }
 
 fn base64(data: &[u8]) -> String {

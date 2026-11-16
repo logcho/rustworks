@@ -1,0 +1,54 @@
+name: Release
+
+# Push a tag like v0.2.0 to build and publish binaries for all platforms.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  package:
+    name: Package (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, name: linux-x86_64 }
+          - { os: macos-latest, name: macos-arm64 }
+          - { os: windows-latest, name: windows-x86_64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install CMake (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-directories: target/OCCT
+          key: occt-7.8.1
+      - name: Build
+        run: cargo build --release --workspace --locked
+      - name: Smoke test
+        run: python3 scripts/mcp_smoke.py target/release/rustworks-mcp
+        shell: bash
+      - name: Package
+        shell: bash
+        run: scripts/package.sh "${{ matrix.name }}" "${GITHUB_REF_NAME}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rustworks-${{ matrix.name }}
+          path: dist/*
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

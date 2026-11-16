@@ -1,5 +1,7 @@
 # RustWorks
 
+[![CI](https://github.com/logcho/rustworks/actions/workflows/ci.yml/badge.svg)](https://github.com/logcho/rustworks/actions/workflows/ci.yml)
+
 A parametric 3D CAD system in Rust, modeled on the SOLIDWORKS workflow: a sketch → feature history tree, driving dimensions and equations, and an industrial B-rep kernel (OpenCASCADE). It ships as two programs:
 
 - **`rustworks`**: a desktop app with a FeatureManager tree, a PropertyManager, a GPU viewport (wgpu, 4× MSAA) and a background rebuild thread, so the UI stays at 60 fps while the model rebuilds.
@@ -9,15 +11,28 @@ Both programs read and write the same `.rwpart` / `.rwasm` / `.rwdrw` files and 
 
 ## Build & run
 
+Prebuilt binaries for macOS (Apple Silicon), Linux (x86_64) and Windows (x86_64) are attached to each [GitHub release](https://github.com/logcho/rustworks/releases). They contain `rustworks` (desktop app), `rustworks-mcp` (MCP server) and the examples; the macOS archive also has `RustWorks.app`. The binaries are unsigned, so macOS asks you to confirm the first launch (right-click › Open).
+
+To build from source you need Rust (stable) plus CMake and a C++17 compiler for OpenCASCADE:
+
+| OS | Prerequisites |
+|---|---|
+| macOS | Xcode Command Line Tools, `brew install cmake` |
+| Linux | `build-essential cmake` (Debian/Ubuntu). X11 and Wayland libraries are loaded at runtime. |
+| Windows | Visual Studio Build Tools (C++ workload), CMake |
+
 ```bash
-cargo build --release      # first build compiles OpenCASCADE from source (~5 min, needs cmake + a C++ compiler)
+cargo build --release      # first build compiles OpenCASCADE from source (5–15 min)
 ./target/release/rustworks examples/flange.rwpart      # desktop app (a part)
 ./target/release/rustworks examples/assembly/demo.rwasm  # an assembly
 ./target/release/rustworks examples/assembly/base.rwdrw  # a 2D drawing
-cargo test --workspace                                  # kernel/solver/regen tests
+cargo test --workspace                                  # unit and integration tests
+python3 scripts/mcp_smoke.py                            # end-to-end MCP check
 ```
 
 No C++ toolchain? `cargo build --release --no-default-features --features rw-kernel/truck` uses the pure-Rust `truck` kernel instead. That kernel is slower and has no fillet, chamfer, shell, loft, sweep, draft, STEP import, assemblies or drawings.
+
+**CI** (`.github/workflows/ci.yml`) builds and tests on Linux, macOS and Windows on every push and pull request, runs the MCP smoke test, and checks the pure-Rust kernel. The OpenCASCADE build is cached between runs. **Releases** (`release.yml`): push a tag such as `v0.2.0` and the workflow builds, smoke-tests and packages all three platforms (`scripts/package.sh`) and publishes them as a GitHub release.
 
 ### Use it from Claude Code (MCP)
 
@@ -85,4 +100,4 @@ Measured on the example parts (release build, Apple Silicon):
   - Sketching: extend, text, dimension leader/arrow graphics (values are shown as labels), feature dimensions (e.g. extrude depth) in the viewport.
   - Drawings: only overall dimensions and diameter callouts are automatic; no manual dimensions, section/detail views, GD&T, bills of materials or balloons.
   - Simulation.
-- **Licensing:** OpenCASCADE is LGPL-2.1 (with an exception) and is linked statically. That's fine for this open-source project. If you distribute closed-source binaries, check the LGPL relinking terms or switch to dynamic linking.
+- **Licensing:** OpenCASCADE is LGPL-2.1 (with an exception) and is linked statically. That's fine for this open-source project, whose source is public, so release binaries can be rebuilt and relinked. If you distribute closed-source binaries, check the LGPL relinking terms or switch to dynamic linking.

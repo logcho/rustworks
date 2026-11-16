@@ -14,8 +14,13 @@ rw-drawing = { path = "../rw-drawing" }
 serde_json.workspace = true
 anyhow.workspace = true
 glam.workspace = true
-eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "persistence"] }
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "persistence", "clipboard", "x11", "wayland"] }
 egui-wgpu = "0.37"
 egui = "0.37"
 bytemuck = { version = "1", features = ["derive"] }
 rfd = "0.15"
+
+# Linux: winit's default features give both X11 and Wayland, with libwayland
+# loaded at runtime (no -dev packages needed to build).
+[target.'cfg(target_os = "linux")'.dependencies]
+winit = "0.30"

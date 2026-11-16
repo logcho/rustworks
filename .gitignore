@@ -4,3 +4,6 @@ target/
 *.obj
 *.rwpart.tmp
 .DS_Store
+dist/
+*.rwasm.tmp
+*.rwdrw.tmp
