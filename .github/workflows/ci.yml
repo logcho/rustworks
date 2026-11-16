@@ -19,7 +19,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-2022]
+    # windows-2022 (Visual Studio 2022): opencascade-sys 0.3's C++ glue does not
+    # compile with Visual Studio 2026 / MSVC 14.51 (C2440 on OCCT handle types).
     runs-on: ${{ matrix.os }}
     # The first run compiles OpenCASCADE from source; later runs hit the cache.
     timeout-minutes: 150

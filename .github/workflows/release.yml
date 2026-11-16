@@ -21,7 +21,9 @@ jobs:
         include:
           - { os: ubuntu-latest, name: linux-x86_64 }
           - { os: macos-latest, name: macos-arm64 }
-          - { os: windows-latest, name: windows-x86_64 }
+          - { os: windows-2022, name: windows-x86_64 }
+    # windows-2022 (Visual Studio 2022): opencascade-sys 0.3's C++ glue does not
+    # compile with Visual Studio 2026 / MSVC 14.51 (C2440 on OCCT handle types).
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     steps:
