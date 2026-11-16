@@ -2,7 +2,7 @@
 //! No fillet/chamfer/shell/STEP import; booleans are slower and less robust
 //! than the OpenCASCADE backend. Kept for builds without a C++ toolchain.
 
-use crate::{BoolOp, EdgeInfo, MassProps, Mesh, Plane, UnionKind, Xform, FaceInfo};
+use crate::{BoolOp, EdgeInfo, FaceGeom, FaceInfo, MassProps, Mesh, Plane, UnionKind, Xform};
 use anyhow::{anyhow, bail, Result};
 use rw_sketch::{Loop, Region, Segment};
 use std::collections::HashSet;
@@ -30,6 +30,14 @@ fn loop_wire(plane: &Plane, lp: &Loop) -> Wire {
             let b = [center[0] - radius * ct, center[1] - radius * st];
             segs.push(Segment::Arc { center: *center, a, b, ccw: *ccw });
             segs.push(Segment::Arc { center: *center, a: b, b: a, ccw: *ccw });
+        } else if let Segment::Spline { .. } = s {
+            // truck: approximate splines by short line segments
+            let mut pts = vec![];
+            s.sample(&mut pts, 0);
+            pts.push(s.end());
+            for w in pts.windows(2) {
+                segs.push(Segment::Line { a: w[0], b: w[1] });
+            }
         } else {
             segs.push(s.clone());
         }
@@ -41,7 +49,7 @@ fn loop_wire(plane: &Plane, lp: &Loop) -> Wire {
         let e = match s {
             Segment::Line { .. } => builder::line(v0, v1),
             Segment::Arc { .. } => builder::circle_arc(v0, v1, p3(plane.to3d(s.mid()))),
-            Segment::Circle { .. } => unreachable!(),
+            Segment::Circle { .. } | Segment::Spline { .. } => unreachable!(),
         };
         edges.push(e);
     }
@@ -380,4 +388,28 @@ pub fn edges(s: &Solid) -> Vec<EdgeInfo> {
 
 pub fn loft(_sections: &[(Plane, Loop)]) -> Result<Solid> {
     bail!("loft requires the OpenCASCADE backend")
+}
+
+pub fn sweep(_pp: &Plane, _r: &Region, _sp: &Plane, _path: &Loop) -> Result<Solid> {
+    bail!("sweep requires the OpenCASCADE backend")
+}
+
+pub fn draft(_s: &Solid, _f: &[usize], _pull: [f64; 3], _a: f64, _o: [f64; 3], _n: [f64; 3]) -> Result<Solid> {
+    bail!("draft requires the OpenCASCADE backend")
+}
+
+pub fn face_geom(_s: &Solid, _fi: usize) -> Result<FaceGeom> {
+    Ok(FaceGeom::Other)
+}
+
+pub fn compound(_solids: &[Solid]) -> Solid {
+    panic!("assemblies require the OpenCASCADE backend")
+}
+
+pub fn transform_matrix(_s: &Solid, _m: &[[f64; 4]; 4]) -> Result<Solid> {
+    bail!("assemblies require the OpenCASCADE backend")
+}
+
+pub fn overlap_volume(_a: &Solid, _b: &Solid) -> f64 {
+    0.0
 }

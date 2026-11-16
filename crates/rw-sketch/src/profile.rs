@@ -13,19 +13,70 @@ pub enum Segment {
     /// Arc from `a` to `b` around `center`; `ccw` gives traversal direction.
     Arc { center: [f64; 2], a: [f64; 2], b: [f64; 2], ccw: bool },
     Circle { center: [f64; 2], radius: f64, ccw: bool },
+    /// Chain of cubic Béziers given by 3n+1 control points (C1 continuous).
+    Spline { poles: Vec<[f64; 2]> },
 }
+
+/// Bézier control points (3n+1) of the Catmull–Rom spline through `pts`.
+/// Closed splines (first point repeated at the end) wrap their tangents.
+pub fn spline_poles(pts: &[[f64; 2]], closed: bool) -> Vec<[f64; 2]> {
+    let n = pts.len();
+    if n < 2 {
+        return pts.to_vec();
+    }
+    let at = |i: isize| -> [f64; 2] {
+        if closed {
+            // pts[0] == pts[n-1]; the ring has n-1 distinct points
+            let m = (n - 1) as isize;
+            pts[i.rem_euclid(m) as usize]
+        } else if i < 0 {
+            [2.0 * pts[0][0] - pts[1][0], 2.0 * pts[0][1] - pts[1][1]]
+        } else if i as usize >= n {
+            [2.0 * pts[n - 1][0] - pts[n - 2][0], 2.0 * pts[n - 1][1] - pts[n - 2][1]]
+        } else {
+            pts[i as usize]
+        }
+    };
+    let mut out = vec![pts[0]];
+    for i in 0..(n - 1) as isize {
+        let (p0, p1, p2, p3) = (at(i - 1), at(i), at(i + 1), at(i + 2));
+        let p2 = if closed && i as usize == n - 2 { pts[n - 1] } else { p2 };
+        out.push([p1[0] + (p2[0] - p0[0]) / 6.0, p1[1] + (p2[1] - p0[1]) / 6.0]);
+        out.push([p2[0] - (p3[0] - p1[0]) / 6.0, p2[1] - (p3[1] - p1[1]) / 6.0]);
+        out.push(p2);
+    }
+    out
+}
+
+/// Point on a Bézier chain at global parameter `u` in [0, n].
+pub fn bezier_point(poles: &[[f64; 2]], u: f64) -> [f64; 2] {
+    let n = (poles.len() - 1) / 3;
+    let k = (u.floor() as usize).min(n.saturating_sub(1));
+    let t = u - k as f64;
+    let p = &poles[3 * k..3 * k + 4];
+    let m = 1.0 - t;
+    let w = [m * m * m, 3.0 * m * m * t, 3.0 * m * t * t, t * t * t];
+    [
+        w[0] * p[0][0] + w[1] * p[1][0] + w[2] * p[2][0] + w[3] * p[3][0],
+        w[0] * p[0][1] + w[1] * p[1][1] + w[2] * p[2][1] + w[3] * p[3][1],
+    ]
+}
+
+const SPLINE_SAMPLES: usize = 24;
 
 impl Segment {
     pub fn start(&self) -> [f64; 2] {
         match self {
             Segment::Line { a, .. } | Segment::Arc { a, .. } => *a,
             Segment::Circle { center, radius, .. } => [center[0] + radius, center[1]],
+            Segment::Spline { poles } => poles[0],
         }
     }
     pub fn end(&self) -> [f64; 2] {
         match self {
             Segment::Line { b, .. } | Segment::Arc { b, .. } => *b,
             Segment::Circle { .. } => self.start(),
+            Segment::Spline { poles } => poles[poles.len() - 1],
         }
     }
     /// Signed sweep angle of an arc in radians.
@@ -42,7 +93,7 @@ impl Segment {
                 if *ccw { s } else { -s }
             }
             Segment::Circle { ccw, .. } => if *ccw { TAU } else { -TAU },
-            Segment::Line { .. } => 0.0,
+            Segment::Line { .. } | Segment::Spline { .. } => 0.0,
         }
     }
     /// Point halfway along the segment.
@@ -55,13 +106,15 @@ impl Segment {
                 [center[0] + r * t.cos(), center[1] + r * t.sin()]
             }
             Segment::Circle { center, radius, .. } => [center[0] - radius, center[1]],
+            Segment::Spline { poles } => bezier_point(poles, ((poles.len() - 1) / 3) as f64 / 2.0),
         }
     }
-    fn reversed(&self) -> Segment {
+    pub fn reversed(&self) -> Segment {
         match self {
             Segment::Line { a, b } => Segment::Line { a: *b, b: *a },
             Segment::Arc { center, a, b, ccw } => Segment::Arc { center: *center, a: *b, b: *a, ccw: !ccw },
             Segment::Circle { center, radius, ccw } => Segment::Circle { center: *center, radius: *radius, ccw: !ccw },
+            Segment::Spline { poles } => Segment::Spline { poles: poles.iter().rev().copied().collect() },
         }
     }
     /// Signed area contribution (Green's theorem, ½∮ x dy − y dx).
@@ -74,6 +127,12 @@ impl Segment {
                 0.5 * (c[0] * d[1] - c[1] * d[0] + r2 * self.sweep())
             }
             Segment::Circle { radius, .. } => 0.5 * radius * radius * self.sweep(),
+            Segment::Spline { .. } => {
+                let mut v = vec![];
+                self.sample(&mut v, 0);
+                v.push(self.end());
+                v.windows(2).map(|w| 0.5 * (w[0][0] * w[1][1] - w[1][0] * w[0][1])).sum()
+            }
         }
     }
     /// Polyline approximation (excluding the end point).
@@ -88,6 +147,12 @@ impl Segment {
                 for i in 0..n {
                     let t = t0 + sw * i as f64 / n as f64;
                     out.push([center[0] + r * t.cos(), center[1] + r * t.sin()]);
+                }
+            }
+            Segment::Spline { poles } => {
+                let n = (poles.len() - 1) / 3;
+                for k in 0..n * SPLINE_SAMPLES {
+                    out.push(bezier_point(poles, k as f64 / SPLINE_SAMPLES as f64));
                 }
             }
             Segment::Circle { center, radius, ccw } => {
@@ -156,7 +221,11 @@ impl Region {
     }
 }
 
-pub(crate) fn regions(sk: &Sketch) -> Result<Vec<Region>, SketchError> {
+type Graph = (Vec<Loop>, Vec<(usize, usize, Segment)>, Vec<[f64; 2]>);
+
+/// Splits non-construction geometry into closed single-entity loops (circles,
+/// closed splines) and graph edges between canonical point nodes.
+fn graph(sk: &Sketch) -> Result<Graph, SketchError> {
     // Canonicalize points by position so geometrically coincident points join.
     let mut pos: HashMap<&str, [f64; 2]> = HashMap::new();
     let mut canon: HashMap<&str, usize> = HashMap::new();
@@ -205,10 +274,71 @@ pub(crate) fn regions(sk: &Sketch) -> Result<Vec<Region>, SketchError> {
                 let (_, c) = pt(center)?;
                 loops.push(Loop { segments: vec![Segment::Circle { center: c, radius: *radius, ccw: true }] });
             }
+            Entity::Spline { points, .. } => {
+                if points.len() < 2 {
+                    return Err(SketchError::Profile(format!("spline `{}` needs at least two points", e.id())));
+                }
+                let nodes: Vec<(usize, [f64; 2])> = points.iter().map(|p| pt(p)).collect::<Result<_, _>>()?;
+                let xy: Vec<[f64; 2]> = nodes.iter().map(|n| n.1).collect();
+                let (i, j) = (nodes[0].0, nodes[nodes.len() - 1].0);
+                let closed = i == j && nodes.len() > 3;
+                let seg = Segment::Spline { poles: spline_poles(&xy, closed) };
+                if closed {
+                    loops.push(Loop { segments: vec![seg] });
+                } else if i != j {
+                    edges.push((i, j, seg));
+                }
+            }
             Entity::Point { .. } => {}
         }
     }
+    Ok((loops, edges, reps))
+}
 
+/// Ordered chains of connected non-construction segments (open or closed),
+/// e.g. sweep paths. Fails when three or more segments meet at a point.
+pub(crate) fn paths(sk: &Sketch) -> Result<Vec<Loop>, SketchError> {
+    let (mut loops, edges, reps) = graph(sk)?;
+    let mut adj: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (k, (i, j, _)) in edges.iter().enumerate() {
+        adj.entry(*i).or_default().push(k);
+        adj.entry(*j).or_default().push(k);
+    }
+    if let Some((n, _)) = adj.iter().find(|(_, es)| es.len() > 2) {
+        let p = reps[*n];
+        return Err(SketchError::Profile(format!("path branches at ({:.4}, {:.4})", p[0], p[1])));
+    }
+    let mut used = vec![false; edges.len()];
+    // Open chains first (start at a dangling end), then remaining closed rings.
+    let mut starts: Vec<usize> = adj.iter().filter(|(_, es)| es.len() == 1).map(|(n, _)| *n).collect();
+    starts.sort_unstable();
+    starts.extend(edges.iter().map(|e| e.0));
+    for s in starts {
+        let mut node = s;
+        let mut segs = vec![];
+        while let Some(k) = adj.get(&node).and_then(|es| es.iter().copied().find(|k| !used[*k])) {
+            used[k] = true;
+            let (i, j, sg) = &edges[k];
+            if *i == node {
+                segs.push(sg.clone());
+                node = *j;
+            } else {
+                segs.push(sg.reversed());
+                node = *i;
+            }
+        }
+        if !segs.is_empty() {
+            loops.push(Loop { segments: segs });
+        }
+    }
+    if loops.is_empty() {
+        return Err(SketchError::Profile("sketch has no path geometry".into()));
+    }
+    Ok(loops)
+}
+
+pub(crate) fn regions(sk: &Sketch) -> Result<Vec<Region>, SketchError> {
+    let (mut loops, edges, reps) = graph(sk)?;
     let mut adj: HashMap<usize, Vec<usize>> = HashMap::new();
     for (k, (i, j, _)) in edges.iter().enumerate() {
         adj.entry(*i).or_default().push(k);

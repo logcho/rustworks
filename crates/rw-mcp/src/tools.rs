@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 
 const PLANE_DESC: &str = "Sketch plane. One of: \"front\" (XY, normal +Z), \"top\" (XZ, normal +Y), \"right\" (YZ, normal +X); \
 {\"base\":\"top\",\"offset\":10} for an offset plane; {\"face\": N} to sketch on planar face N of the current body (see list_faces / render with face_labels); \
-or {\"origin\":[x,y,z],\"normal\":[x,y,z],\"x_dir\":[x,y,z]}. World is Y-up, units mm.";
+{\"origin\":[x,y,z],\"normal\":[x,y,z],\"x_dir\":[x,y,z]}; or the id/name of a reference plane feature (see the `plane` tool), e.g. \"Plane1\". World is Y-up, units mm.";
 
 const SHAPES_DESC: &str = "Geometry to add, in sketch-plane 2D coordinates (mm). Shapes: \
 {\"type\":\"line\",\"from\":[x,y],\"to\":[x,y]}, \
@@ -15,9 +15,10 @@ const SHAPES_DESC: &str = "Geometry to add, in sketch-plane 2D coordinates (mm).
 {\"type\":\"arc\",\"center\":[x,y],\"start\":[x,y],\"end\":[x,y]} (counter-clockwise start→end), \
 {\"type\":\"polygon\",\"center\":[x,y],\"radius\":r,\"sides\":n,\"rotation\":deg}, \
 {\"type\":\"slot\",\"from\":[x,y],\"to\":[x,y],\"radius\":r}, \
+{\"type\":\"spline\",\"points\":[[x,y],...],\"closed\":false} (smooth curve through the points), \
 {\"type\":\"point\",\"at\":[x,y]}. \
 Any shape may set \"construction\":true (lines/circles/arcs) to exclude it from profiles. Endpoints at identical coordinates are merged automatically, so closed outlines form closed profiles. \
-Nested closed loops become holes. The response lists the entity ids created for each shape (points p*, lines l*, circles c*, arcs a*).";
+Nested closed loops become holes. The response lists the entity ids created for each shape (points p*, lines l*, circles c*, arcs a*, splines s*).";
 
 const CONSTRAINTS_DESC: &str = "Constraints referencing entity ids. Types: \
 coincident{a,b}, horizontal{line}, vertical{line}, distance{a,b?,value} (line length if b omitted; point-point; point-line; line-line), \
@@ -81,6 +82,9 @@ pub fn list() -> Value {
                 "remove_entities":{"type":"array","items":{"type":"string"},"description":"Entity ids to delete (dependent lines/constraints are removed too)"},
                 "remove_constraints":{"type":"array","items":{"type":"integer"},"description":"Constraint indices (from get_sketch) to delete"},
                 "move_points":{"type":"object","additionalProperties":{"type":"array","items":{"type":"number"}},"description":"{point_id:[x,y]} new positions before solving"},
+                "trim":{"type":"array","items":{"type":"object"},"description":"Power trim: [{\"entity\":\"l3\",\"at\":[x,y]}] removes the piece of the entity around `at` up to its nearest intersections with other geometry (whole entity if nothing crosses it). Circles become arcs."},
+                "fillet_corners":{"type":"array","items":{"type":"object"},"description":"Sketch fillet: [{\"point\":\"p2\",\"radius\":3}] rounds the corner where two lines meet at that point with a tangent arc."},
+                "offset":{"type":"array","items":{"type":"object"},"description":"Offset entities: [{\"entities\":[\"l1\",\"l2\",...],\"distance\":2}] copies a connected chain of lines/arcs (or circles/splines) at a distance; positive grows closed outlines, for open chains it offsets to the left of the drawing direction."},
                 "plane": plane
             },"required":["sketch"]}
         },
@@ -153,6 +157,40 @@ pub fn list() -> Value {
                 "plane": plane,
                 "name":{"type":"string"}
             },"required":["plane"]}
+        },
+        {
+            "name": "plane",
+            "description": "Create a reference plane feature (construction geometry). Offset/tilt a base plane, or pass three points. Sketch on it, use it as a hole/mirror/draft plane, by its id or name.",
+            "inputSchema": {"type":"object","properties":{
+                "base":{"description": PLANE_DESC},
+                "offset": dim(),
+                "angle":{"description":"Tilt in degrees about the base plane's in-plane X axis","anyOf":[{"type":"number"},{"type":"string"}]},
+                "points":{"type":"array","items":v3.clone(),"minItems":3,"maxItems":3,"description":"Three points the plane passes through (instead of base)"},
+                "flip":{"type":"boolean","description":"Reverse the normal"},
+                "name":{"type":"string"}
+            }}
+        },
+        {
+            "name": "sweep",
+            "description": "Sweep a profile sketch's closed region(s) along a path sketch (one connected chain of lines/arcs/splines, open or closed). The profile is used where it is drawn: put it at the start of the path, normally on a plane perpendicular to the path there.",
+            "inputSchema": {"type":"object","properties":{
+                "profile":{"type":"string"},
+                "path":{"type":"string"},
+                "op": op_schema(),
+                "name":{"type":"string"}
+            },"required":["profile","path"]}
+        },
+        {
+            "name": "draft",
+            "description": "Draft (taper) faces for molding: tilts each face by `angle` degrees, hinged where it meets the neutral plane, opening along the plane normal (reverse to flip). Pick side faces that cross the neutral plane.",
+            "inputSchema": {"type":"object","properties":{
+                "faces":{"type":"array","items":{"type":"integer"}},
+                "face_points":{"type":"array","items":v3.clone()},
+                "neutral_plane":{"description": PLANE_DESC},
+                "angle": dim(),
+                "reverse":{"type":"boolean"},
+                "name":{"type":"string"}
+            },"required":["neutral_plane","angle"]}
         },
         {
             "name": "list_edges",
@@ -235,18 +273,18 @@ pub fn list() -> Value {
         },
         {
             "name": "undo",
-            "description": "Undo the last change.",
-            "inputSchema": {"type":"object","properties":{}}
+            "description": "Undo the last change (to the active part or assembly).",
+            "inputSchema": {"type":"object","properties":{"target":{"type":"string","enum":["part","assembly"],"description":"Which open document to use (default: the last one created/opened)"}}}
         },
         {
             "name": "redo",
             "description": "Redo the last undone change.",
-            "inputSchema": {"type":"object","properties":{}}
+            "inputSchema": {"type":"object","properties":{"target":{"type":"string","enum":["part","assembly"],"description":"Which open document to use (default: the last one created/opened)"}}}
         },
         {
             "name": "list_faces",
-            "description": "List the faces of the current body: index, kind (plane/curved), outward normal, centroid and area. Use a planar face index as {\"face\":N} for sketch/hole planes.",
-            "inputSchema": {"type":"object","properties":{"planar_only":{"type":"boolean"}}}
+            "description": "List the faces of the current body: index, kind (plane/curved), outward normal, centroid and area. Use a planar face index as {\"face\":N} for sketch/hole planes. With `component`, lists that assembly component's faces (part coordinates + world position + exact surface type) for picking mate faces.",
+            "inputSchema": {"type":"object","properties":{"planar_only":{"type":"boolean"},"component":{"type":"string","description":"Assembly component id/name"}}}
         },
         {
             "name": "render",
@@ -257,21 +295,94 @@ pub fn list() -> Value {
                 "edges":{"type":"boolean"},
                 "face_labels":{"type":"boolean"},
                 "edge_labels":{"type":"boolean","description":"Draw edge indices (cyan tags) for fillet/chamfer selection"},
-                "sketches":{"type":"boolean","description":"Overlay sketch geometry (default true)"}
+                "sketches":{"type":"boolean","description":"Overlay sketch geometry (default true)"},
+                "target":{"type":"string","enum":["part","assembly"],"description":"Which open document to use (default: the last one created/opened)"}
             }}
         },
         {
             "name": "mass_properties",
             "description": "Volume (mm³), surface area (mm²), center of mass, bounding box and mass for a given density (g/cm³, default 7.85 steel).",
-            "inputSchema": {"type":"object","properties":{"density":{"type":"number"}}}
+            "inputSchema": {"type":"object","properties":{"density":{"type":"number"},"target":{"type":"string","enum":["part","assembly"],"description":"Which open document to use (default: the last one created/opened)"}}}
         },
         {
             "name": "export",
             "description": "Export the current body: step (exact B-rep, for other CAD), stl (3D printing), obj (mesh).",
             "inputSchema": {"type":"object","properties":{
                 "format":{"type":"string","enum":["step","stl","obj"]},
-                "path":{"type":"string"}
+                "path":{"type":"string"},
+                "target":{"type":"string","enum":["part","assembly"],"description":"Which open document to use (default: the last one created/opened)"}
             },"required":["format","path"]}
+        },
+        {
+            "name": "new_assembly",
+            "description": "Create a new assembly (.rwasm) and make it the active document. Components reference part files; mates position them. The first component (or any marked fixed) is grounded.",
+            "inputSchema": {"type":"object","properties":{"name":{"type":"string"},"path":{"type":"string"}},"required":["name"]}
+        },
+        {
+            "name": "open_assembly",
+            "description": "Open an existing .rwasm assembly as the active document.",
+            "inputSchema": {"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}
+        },
+        {
+            "name": "get_assembly",
+            "description": "Return the assembly document (components with placements, mates) plus solve status and remaining degrees of freedom.",
+            "inputSchema": {"type":"object","properties":{}}
+        },
+        {
+            "name": "add_component",
+            "description": "Insert a part file into the active assembly at a position/rotation. Edits to the part file (e.g. via open_part + features) show up in the assembly automatically.",
+            "inputSchema": {"type":"object","properties":{
+                "part":{"type":"string","description":"Path to the .rwpart file"},
+                "position": v3.clone(),
+                "rotation":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3,"description":"Rotation vector: axis × angle in degrees, e.g. [90,0,0] = 90° about X"},
+                "fixed":{"type":"boolean"},
+                "name":{"type":"string"}
+            },"required":["part"]}
+        },
+        {
+            "name": "edit_component",
+            "description": "Move, fix/float, suppress, rename or swap the part file of a component. Mates re-solve afterwards (placements of mated components are recomputed).",
+            "inputSchema": {"type":"object","properties":{
+                "component":{"type":"string"},
+                "position": v3.clone(),
+                "rotation": v3.clone(),
+                "fixed":{"type":"boolean"},
+                "suppressed":{"type":"boolean"},
+                "name":{"type":"string"},
+                "part":{"type":"string"}
+            },"required":["component"]}
+        },
+        {
+            "name": "remove_component",
+            "description": "Remove a component and the mates that reference it.",
+            "inputSchema": {"type":"object","properties":{"component":{"type":"string"}},"required":["component"]}
+        },
+        {
+            "name": "add_mate",
+            "description": "Add a mate between geometry on two components. coincident: planar faces touch face-to-face (aligned:true for same-facing), axes collinear, points meet, point/axis on plane; concentric: axes (cylinders/cones) collinear; distance (value mm): planes parallel at a gap, points/axes at a distance; parallel; perpendicular; angle (value deg). The moving component snaps into place, then all mates are solved together.",
+            "inputSchema": {"type":"object","properties":{
+                "type":{"type":"string","enum":["coincident","concentric","distance","parallel","perpendicular","angle"]},
+                "a": {"type":"object","description":"Geometry on a component: {\"component\":\"c2\", plus ONE of \"face\": N (face index from list_faces with component) | \"face_point\":[x,y,z] (part coords) | \"plane\":\"front|top|right\" (part origin plane) | \"axis\":\"x|y|z\" (part origin axis) | \"point\":[x,y,z]}. Planar faces act as planes, cylindrical/conical faces as their axis, spherical faces as their center.","properties":{"component":{"type":"string"}},"required":["component"]},
+                "b": {"type":"object","description":"Geometry on a component: {\"component\":\"c2\", plus ONE of \"face\": N (face index from list_faces with component) | \"face_point\":[x,y,z] (part coords) | \"plane\":\"front|top|right\" (part origin plane) | \"axis\":\"x|y|z\" (part origin axis) | \"point\":[x,y,z]}. Planar faces act as planes, cylindrical/conical faces as their axis, spherical faces as their center.","properties":{"component":{"type":"string"}},"required":["component"]},
+                "value":{"description":"Distance (mm) or angle (deg); number or expression","anyOf":[{"type":"number"},{"type":"string"}]},
+                "aligned":{"type":"boolean","description":"Planar mates: normals point the same way instead of opposing"},
+                "name":{"type":"string"}
+            },"required":["type","a","b"]}
+        },
+        {
+            "name": "edit_mate",
+            "description": "Change a mate with a JSON merge patch, e.g. {\"value\": 12} or {\"aligned\": true} or {\"suppressed\": true}.",
+            "inputSchema": {"type":"object","properties":{"mate":{"type":"string"},"changes":{"type":"object"}},"required":["mate","changes"]}
+        },
+        {
+            "name": "delete_mate",
+            "description": "Delete a mate.",
+            "inputSchema": {"type":"object","properties":{"mate":{"type":"string"}},"required":["mate"]}
+        },
+        {
+            "name": "check_interference",
+            "description": "Find components whose solids overlap, with the overlap volume.",
+            "inputSchema": {"type":"object","properties":{}}
         }
     ])
 }

@@ -1,8 +1,9 @@
+use crate::asm_ui::AsmUi;
 use crate::viewport::{LineVertex, Viewport};
 use crate::worker::{Rebuilt, Request, Response, Worker};
 use egui::{Color32, RichText};
 use glam::Vec3;
-use rw_core::kernel::{MassProps, Mesh};
+use rw_core::kernel::{MassProps, Mesh, Plane};
 use rw_core::model::{read_part, write_part};
 use rw_core::sketch::{Constraint, Entity, Scope, SolveStatus, Value};
 use rw_core::*;
@@ -43,6 +44,13 @@ pub struct App {
     hover_edge: Option<u32>,
     /// Extra features selected with Cmd/Ctrl-click (e.g. loft sections).
     multi: Vec<String>,
+    /// Reference planes from the last rebuild (feature id, plane).
+    ref_planes: Vec<(String, Plane)>,
+    /// Last part mesh (restored when leaving assembly mode).
+    part_mesh: Option<Arc<Mesh>>,
+    /// Open assembly, and whether it is the active window.
+    asm: Option<AsmUi>,
+    asm_active: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -112,8 +120,16 @@ impl App {
             sel_edges: vec![],
             hover_edge: None,
             multi: vec![],
+            ref_planes: vec![],
+            part_mesh: None,
+            asm: None,
+            asm_active: false,
         };
         match open.or(remembered) {
+            Some(p) if p.extension().is_some_and(|e| e == "rwasm") => {
+                app.regen();
+                app.open_assembly(p);
+            }
             Some(p) if p.exists() => app.open(p),
             Some(p) => {
                 app.part = Part::new(p.file_stem().and_then(|s| s.to_str()).unwrap_or("Part1"));
@@ -226,6 +242,11 @@ impl App {
         self.mass = r.mass;
         self.millis = r.millis;
         self.cache_hits = r.cache_hits;
+        self.ref_planes = r.ref_planes;
+        self.part_mesh = r.mesh.clone();
+        if self.asm_active {
+            return;
+        }
         if let (Some(vp), Some(rs)) = (self.vp.as_mut(), rs) {
             vp.set_mesh(&rs.device, r.mesh);
             if self.first_mesh && vp.mesh().is_some() {
@@ -262,6 +283,55 @@ impl App {
         plane_from_face(info)
     }
 
+    /// Resolves any plane reference, including reference-plane features.
+    fn plane_of(&self, p: &PlaneRef) -> Option<Plane> {
+        let mut map: std::collections::HashMap<String, Plane> = self.ref_planes.iter().cloned().collect();
+        for (id, pl) in &self.ref_planes {
+            if let Some(f) = self.part.feature(id) {
+                map.insert(f.name.clone(), *pl);
+            }
+        }
+        resolve_plane_in(p, &Scope::new(&self.part.parameters), &map).ok()
+    }
+
+    /// (id, name) of every reference plane feature.
+    fn ref_plane_list(&self) -> Vec<(String, String)> {
+        self.part.features.iter().filter(|f| matches!(f.kind, FeatureKind::Plane(_))).map(|f| (f.id.clone(), f.name.clone())).collect()
+    }
+
+    // ---------- assembly mode ----------
+
+    fn open_assembly(&mut self, p: PathBuf) {
+        match rw_core::assembly::AsmModel::open(&p) {
+            Ok(m) => self.activate_assembly(AsmUi::new(m)),
+            Err(e) => self.notify(format!("Open assembly failed: {e:#}"), true),
+        }
+    }
+
+    fn activate_assembly(&mut self, a: AsmUi) {
+        self.asm = Some(a);
+        self.set_asm_active(true);
+    }
+
+    fn set_asm_active(&mut self, on: bool) {
+        self.asm_active = on && self.asm.is_some();
+        self.sketcher = None;
+        self.sel_edges.clear();
+        if let Some(vp) = self.vp.as_mut() {
+            vp.selected_face = None;
+        }
+        if let Some(a) = self.asm.as_mut() {
+            a.mesh_dirty = true;
+            a.fit_pending = true;
+        }
+        self.first_mesh = true;
+        self.overlay_dirty = true;
+        if !self.asm_active {
+            // restore the part mesh
+            self.regen();
+        }
+    }
+
     // ---------- UI ----------
 
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
@@ -285,6 +355,30 @@ impl App {
                 if ui.button("Save As…").clicked() {
                     self.save_as();
                 }
+                ui.separator();
+                if ui.button("New Assembly…").clicked() {
+                    if let Some(p) = rfd::FileDialog::new().set_file_name("Assembly1.rwasm").add_filter("RustWorks assembly", &["rwasm"]).save_file() {
+                        match AsmUi::create(p) {
+                            Ok(a) => self.activate_assembly(a),
+                            Err(e) => self.notify(format!("Could not create assembly: {e:#}"), true),
+                        }
+                    }
+                }
+                if ui.button("Open Assembly…").clicked() {
+                    if let Some(p) = rfd::FileDialog::new().add_filter("RustWorks assembly", &["rwasm"]).pick_file() {
+                        self.open_assembly(p);
+                    }
+                }
+                if self.asm_active && ui.button("Export Assembly STEP…").clicked() {
+                    if let Some(p) = rfd::FileDialog::new().set_file_name("assembly.step").add_filter("step", &["step"]).save_file() {
+                        let r = self.asm.as_ref().unwrap().model.export_step(&p);
+                        match r {
+                            Ok(()) => self.notify(format!("Exported {}", p.display()), false),
+                            Err(e) => self.notify(format!("Export failed: {e:#}"), true),
+                        }
+                    }
+                }
+                ui.separator();
                 if ui.button("Import STEP…").clicked() {
                     if let Some(p) = rfd::FileDialog::new().add_filter("STEP", &["step", "stp"]).pick_file() {
                         self.add_feature("Import", FeatureKind::Import(Import { path: p.display().to_string(), op: Op::Boss }));
@@ -303,6 +397,23 @@ impl App {
                     }
                 }
             });
+            if self.asm.is_some() {
+                ui.separator();
+                let mut want: Option<bool> = None;
+                if ui.selectable_label(!self.asm_active, "Part").on_hover_text("Edit the open part").clicked() {
+                    want = Some(false);
+                }
+                let an = self.asm.as_ref().map(|a| a.model.asm.name.clone()).unwrap_or_default();
+                if ui.selectable_label(self.asm_active, format!("Assembly: {an}")).clicked() {
+                    want = Some(true);
+                }
+                if let Some(w) = want {
+                    if w != self.asm_active {
+                        self.set_asm_active(w);
+                    }
+                }
+                ui.separator();
+            }
             ui.menu_button("Edit", |ui| {
                 if ui.add_enabled(!self.undo.is_empty(), egui::Button::new("Undo  Cmd+Z")).clicked() {
                     self.undo();
@@ -376,6 +487,15 @@ impl App {
                             sk.cancel();
                         }
                     }
+                    match sk.tool {
+                        crate::sketcher::Tool::Fillet => {
+                            ui.add(egui::DragValue::new(&mut sk.fillet_radius).speed(0.1).range(0.001..=1e6).prefix("R "));
+                        }
+                        crate::sketcher::Tool::Offset => {
+                            ui.add(egui::DragValue::new(&mut sk.offset_dist).speed(0.1).range(0.001..=1e6).prefix("d "));
+                        }
+                        _ => {}
+                    }
                 }
                 ui.separator();
             } else if let Some(id) = sel_sketch.clone() {
@@ -393,10 +513,24 @@ impl App {
                         self.new_sketch(plane);
                     }
                 }
+                for (id, name) in self.ref_plane_list() {
+                    if ui.button(format!("{name} (reference plane)")).clicked() {
+                        self.new_sketch(PlaneRef::Feature(id));
+                    }
+                }
                 if ui.add_enabled(face_plane.is_some(), egui::Button::new("On Selected Face")).clicked() {
                     self.new_sketch(face_plane.clone().unwrap());
                 }
             });
+            let sel_plane_feat = sel.as_ref().filter(|f| matches!(f.kind, FeatureKind::Plane(_))).map(|f| f.id.clone());
+            if ui
+                .button("Plane")
+                .on_hover_text("Reference plane: offset from the selected face, selected reference plane, or the Top plane")
+                .clicked()
+            {
+                let base = face_plane.clone().or(sel_plane_feat.clone().map(PlaneRef::Feature)).unwrap_or(PlaneRef::Named(StdPlane::Top));
+                self.add_feature("Plane", FeatureKind::Plane(RefPlane { base: Some(base), offset: 10.0.into(), angle: None, points: None, flip: false }));
+            }
             ui.separator();
             let tool = |ui: &mut egui::Ui, label: &str, enabled: bool, tip: &str| {
                 ui.add_enabled(enabled, egui::Button::new(label)).on_hover_text(tip).on_disabled_hover_text(tip).clicked()
@@ -409,6 +543,28 @@ impl App {
                 let s = sel_sketch.clone().unwrap();
                 self.add_feature("Cut-Extrude", FeatureKind::Extrude(Extrude { sketch: s, depth: 10.0.into(), end: EndCondition::ThroughAll, reverse: true, op: Op::Cut }));
             }
+            let two_sketches: Vec<String> = {
+                let mut v: Vec<String> = self
+                    .selected
+                    .iter()
+                    .chain(self.multi.iter())
+                    .filter(|id| matches!(self.part.feature(id).map(|f| &f.kind), Some(FeatureKind::Sketch(_))))
+                    .cloned()
+                    .collect();
+                v.dedup();
+                v
+            };
+            if tool(ui, "Sweep", two_sketches.len() == 2, "Sweep a profile sketch along a path sketch (select one, Cmd/Ctrl-click the other)") {
+                // the sketch with a closed profile is the profile; the other is the path
+                let has_profile = |id: &String| self.sketches.iter().any(|s| &s.feature == id && s.profile_error.is_none() && !s.regions.is_empty());
+                let (profile, path) = if has_profile(&two_sketches[0]) && !has_profile(&two_sketches[1]) {
+                    (two_sketches[0].clone(), two_sketches[1].clone())
+                } else {
+                    (two_sketches[1].clone(), two_sketches[0].clone())
+                };
+                self.add_feature("Sweep", FeatureKind::Sweep(Sweep { profile, path, op: Op::Boss }));
+                self.multi.clear();
+            }
             if tool(ui, "Revolve", sel_sketch.is_some(), "Revolved Boss about the sketch Y axis") {
                 let s = sel_sketch.clone().unwrap();
                 self.add_feature("Revolve", FeatureKind::Revolve(Revolve { sketch: s, axis: AxisRef::Entity("y_axis".into()), angle: 360.0.into(), op: Op::Boss }));
@@ -416,8 +572,7 @@ impl App {
             let hole_ok = face_plane.is_some() && self.picked_point.is_some();
             if tool(ui, "Hole", hole_ok, "Hole Wizard at the clicked point of the selected planar face") {
                 if let (Some(plane), Some(p)) = (face_plane.clone(), self.picked_point) {
-                    let pl = resolve_plane(&plane, &Scope::new(&self.part.parameters)).ok();
-                    if let Some(pl) = pl {
+                    if let Some(pl) = self.plane_of(&plane) {
                         let d = [p.x as f64 - pl.origin[0], p.y as f64 - pl.origin[1], p.z as f64 - pl.origin[2]];
                         let uv = [round3(dot3(d, pl.x)), round3(dot3(d, pl.y))];
                         self.add_feature("Hole", FeatureKind::Hole(Hole { plane, points: vec![uv], diameter: 6.0.into(), depth: None, counterbore: None, countersink: None }));
@@ -454,6 +609,13 @@ impl App {
                 let p = self.picked_point.unwrap();
                 self.add_feature("Shell", FeatureKind::Shell(Shell { open_faces: vec![[p.x as f64, p.y as f64, p.z as f64].map(round3)], thickness: 2.0.into() }));
             }
+            if tool(ui, "Draft", shell_ok, "Taper the selected face 3° about the Top plane (edit the neutral plane in the PropertyManager)") {
+                let p = self.picked_point.unwrap();
+                self.add_feature(
+                    "Draft",
+                    FeatureKind::Draft(Draft { faces: vec![[p.x as f64, p.y as f64, p.z as f64].map(round3)], neutral: PlaneRef::Named(StdPlane::Top), angle: 3.0.into(), reverse: false }),
+                );
+            }
             let loft_sk: Vec<String> = self
                 .multi
                 .iter()
@@ -488,7 +650,7 @@ impl App {
     /// Enters interactive sketch mode and turns the view normal to the sketch.
     fn enter_sketch(&mut self, id: &str) {
         let Some(FeatureKind::Sketch(sf)) = self.part.feature(id).map(|f| f.kind.clone()) else { return };
-        if let Ok(pl) = resolve_plane(&sf.plane, &Scope::new(&self.part.parameters)) {
+        if let Some(pl) = self.plane_of(&sf.plane) {
             if let Some(vp) = self.vp.as_mut() {
                 let n = pl.normal();
                 vp.view_to(Vec3::new(n[0] as f32, n[1] as f32, n[2] as f32), Vec3::new(pl.y[0] as f32, pl.y[1] as f32, pl.y[2] as f32));
@@ -571,6 +733,9 @@ impl App {
                     FeatureKind::Shell(_) => "Sh",
                     FeatureKind::Loft(_) => "L",
                     FeatureKind::Import(_) => "I",
+                    FeatureKind::Plane(_) => "Pl",
+                    FeatureKind::Sweep(_) => "Sw",
+                    FeatureKind::Draft(_) => "D",
                 };
                 let mut text = RichText::new(format!("[{icon}]  {}", f.name));
                 let mut tip = format!("{} · id {}", f.kind.type_name(), f.id);
@@ -724,6 +889,7 @@ impl App {
             }
         });
         let fid = f.id.clone();
+        let ref_planes = self.ref_plane_list();
         let sketch_ids: Vec<(String, String)> = self
             .part
             .features
@@ -936,9 +1102,68 @@ impl App {
                 changed |= op_combo(ui, &mut im.op);
                 ui.label(RichText::new(&im.path).weak().small());
             }
+            FeatureKind::Plane(rp) => {
+                if let Some(base) = &mut rp.base {
+                    ui.label("Base plane");
+                    changed |= plane_combo(ui, base, &ref_planes);
+                }
+                egui::Grid::new("rplane").num_columns(2).show(ui, |ui| {
+                    ui.label("Offset");
+                    changed |= value_edit(ui, egui::Id::new(("rpo", &fid)), &mut rp.offset, 100.0);
+                    ui.end_row();
+                    ui.label("Tilt (°)").on_hover_text("Rotate about the base plane's X axis");
+                    let mut ang = rp.angle.clone().unwrap_or_default();
+                    if value_edit(ui, egui::Id::new(("rpa", &fid)), &mut ang, 100.0) {
+                        rp.angle = if ang == Value::Num(0.0) { None } else { Some(ang) };
+                        changed = true;
+                    }
+                    ui.end_row();
+                    ui.label("Flip normal");
+                    changed |= ui.checkbox(&mut rp.flip, "").changed();
+                    ui.end_row();
+                });
+                if ui.button("Sketch on this plane").clicked() {
+                    self.new_sketch(PlaneRef::Feature(fid.clone()));
+                }
+            }
+            FeatureKind::Sweep(sw) => {
+                egui::Grid::new("sweep").num_columns(2).show(ui, |ui| {
+                    ui.label("Operation");
+                    changed |= op_combo(ui, &mut sw.op);
+                    ui.end_row();
+                });
+                ui.push_id("prof", |ui| {
+                    ui.label("Profile");
+                    changed |= sketch_combo(ui, &mut sw.profile, &sketch_ids);
+                });
+                ui.push_id("path", |ui| {
+                    ui.label("Path");
+                    changed |= sketch_combo(ui, &mut sw.path, &sketch_ids);
+                });
+                ui.label(RichText::new("The profile is swept from where it is drawn; place it at the start of the path.").weak().small());
+            }
+            FeatureKind::Draft(d) => {
+                egui::Grid::new("draft").num_columns(2).show(ui, |ui| {
+                    ui.label("Angle (°)");
+                    changed |= value_edit(ui, egui::Id::new(("da", &fid)), &mut d.angle, 100.0);
+                    ui.end_row();
+                    ui.label("Reverse");
+                    changed |= ui.checkbox(&mut d.reverse, "").changed();
+                    ui.end_row();
+                });
+                ui.label("Neutral plane");
+                changed |= plane_combo(ui, &mut d.neutral, &ref_planes);
+                ui.label(RichText::new(format!("{} face(s)", d.faces.len())).weak());
+                if let Some(p) = self.picked_point {
+                    if ui.button("Add selected face").clicked() {
+                        d.faces.push([p.x as f64, p.y as f64, p.z as f64].map(round3));
+                        changed = true;
+                    }
+                }
+            }
             FeatureKind::Mirror(m) => {
                 ui.label("Mirror plane");
-                changed |= plane_combo(ui, &mut m.plane);
+                changed |= plane_combo(ui, &mut m.plane, &ref_planes);
                 ui.label(RichText::new(if m.features.is_empty() { "Mirroring the whole body".into() } else { format!("Features: {}", m.features.join(", ")) }).weak());
             }
         }
@@ -961,7 +1186,8 @@ impl App {
     fn sketch_editor(&mut self, ui: &mut egui::Ui, fid: &str, sf: &mut SketchFeature) -> bool {
         let mut changed = false;
         ui.label("Plane");
-        changed |= plane_combo(ui, &mut sf.plane);
+        let refs = self.ref_plane_list();
+        changed |= plane_combo(ui, &mut sf.plane, &refs);
         if let Some(st) = self.status_of(fid).and_then(|s| s.sketch.clone()) {
             let (c, t) = match st.status {
                 SolveStatus::FullyDefined => (Color32::BLACK, "Fully defined".to_string()),
@@ -1127,6 +1353,7 @@ impl App {
                     Entity::Line { id, start, end, construction } => format!("{id}  line {start}->{end}{}", if *construction { " (constr.)" } else { "" }),
                     Entity::Circle { id, center, radius, .. } => format!("{id}  circle @{center} r={}", fmt_num(*radius)),
                     Entity::Arc { id, center, start, end, .. } => format!("{id}  arc @{center} {start}->{end}"),
+                    Entity::Spline { id, points, .. } => format!("{id}  spline {}", points.join("->")),
                 };
                 ui.label(RichText::new(t).monospace().small());
             }
@@ -1135,14 +1362,16 @@ impl App {
     }
 
     fn rebuild_overlay(&mut self, rs: &egui_wgpu::RenderState) {
-        let Some(vp) = self.vp.as_mut() else { return };
+        if self.vp.is_none() {
+            return;
+        }
         let consumed: Vec<String> = self.part.features.iter().flat_map(|f| f.kind.references()).collect();
         let mut lines: Vec<LineVertex> = vec![];
         // While editing a sketch, draw it live from the document.
         let editing: Option<SolvedSketch> = self.sketcher.as_ref().and_then(|sk| {
             let f = self.part.feature(&sk.feature)?;
             let FeatureKind::Sketch(sf) = &f.kind else { return None };
-            let plane = resolve_plane(&sf.plane, &Scope::new(&self.part.parameters)).ok()?;
+            let plane = self.plane_of(&sf.plane)?;
             Some(SolvedSketch { feature: f.id.clone(), plane, sketch: sf.sketch.clone(), report: None, regions: vec![], profile_error: None })
         });
         let editing_id = editing.as_ref().map(|e| e.feature.clone());
@@ -1168,6 +1397,29 @@ impl App {
                 }
             }
         }
+        // Reference planes (square outlines; selected one highlighted)
+        if !self.asm_active {
+            let half = self
+                .mass
+                .map(|m| {
+                    let d = [m.bbox_max[0] - m.bbox_min[0], m.bbox_max[1] - m.bbox_min[1], m.bbox_max[2] - m.bbox_min[2]];
+                    d[0].max(d[1]).max(d[2]) * 0.6
+                })
+                .unwrap_or(40.0)
+                .max(10.0);
+            for (id, pl) in &self.ref_planes {
+                let sel = self.selected.as_deref() == Some(id.as_str());
+                let c = if sel { [0.0, 0.45, 1.0, 1.0] } else { [0.85, 0.55, 0.1, 0.9] };
+                let corners: Vec<[f32; 3]> = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]]
+                    .iter()
+                    .map(|q: &[f64; 2]| pl.to3d([q[0] * half, q[1] * half]).map(|v| v as f32))
+                    .collect();
+                for k in 0..4 {
+                    lines.push(LineVertex { pos: corners[k], color: c });
+                    lines.push(LineVertex { pos: corners[(k + 1) % 4], color: c });
+                }
+            }
+        }
         // Origin axes
         let len = self.mass.map(|m| {
             let d = [m.bbox_max[0] - m.bbox_min[0], m.bbox_max[1] - m.bbox_min[1], m.bbox_max[2] - m.bbox_min[2]];
@@ -1178,7 +1430,9 @@ impl App {
             lines.push(LineVertex { pos: [0.0; 3], color: c });
             lines.push(LineVertex { pos: [dir[0] * len, dir[1] * len, dir[2] * len], color: c });
         }
-        vp.set_overlay(&rs.device, &lines);
+        if let Some(vp) = self.vp.as_mut() {
+            vp.set_overlay(&rs.device, &lines);
+        }
         self.overlay_dirty = false;
     }
 
@@ -1204,6 +1458,18 @@ impl App {
         };
         if self.overlay_dirty {
             self.rebuild_overlay(rs);
+        }
+        let found = self.sketcher.as_ref().and_then(|sk| {
+            self.part.feature(&sk.feature).and_then(|f| match &f.kind {
+                FeatureKind::Sketch(sf) => Some((sf.sketch.clone(), self.plane_of(&sf.plane)?)),
+                _ => None,
+            })
+        });
+        let asm_mode = self.asm_active;
+        if asm_mode {
+            if let (Some(a), Some(vp)) = (self.asm.as_mut(), self.vp.as_mut()) {
+                a.sync_viewport(vp, &rs.device);
+            }
         }
         let Some(vp) = self.vp.as_mut() else { return };
         let ppp = ui.ctx().pixels_per_point();
@@ -1245,7 +1511,7 @@ impl App {
         }
         // Edge hover (screen-space distance to projected B-rep edges).
         self.hover_edge = None;
-        if !sketching && !resp.dragged() {
+        if !sketching && !asm_mode && !resp.dragged() {
             if let (Some(m), Some(l)) = (vp.mesh(), local) {
                 let mut best = 6.0f32;
                 for (pl, id) in m.edges.iter().zip(&m.edge_ids) {
@@ -1260,7 +1526,20 @@ impl App {
                 }
             }
         }
-        if resp.clicked() && !sketching {
+        if resp.clicked() && asm_mode {
+            if let Some(a) = self.asm.as_mut() {
+                match hit {
+                    Some((f, p)) => a.pick(f, p, shift),
+                    None if !shift => {
+                        a.picks.clear();
+                        a.sel_comp = None;
+                        a.sel_mate = None;
+                        a.mesh_dirty = true;
+                    }
+                    None => {}
+                }
+            }
+        } else if resp.clicked() && !sketching {
             if let Some(e) = self.hover_edge {
                 let mid = vp
                     .mesh()
@@ -1311,13 +1590,12 @@ impl App {
             }
         }
 
+        if let (true, Some(a)) = (asm_mode, self.asm.as_ref()) {
+            a.paint_picks(&painter, rect, vp);
+        }
         // Interactive sketching
         let mut sketch_edit: Option<(String, rw_core::sketch::Sketch)> = None;
         if let Some(sk) = self.sketcher.as_mut() {
-            let found = self.part.feature(&sk.feature).and_then(|f| match &f.kind {
-                FeatureKind::Sketch(sf) => Some((sf.sketch.clone(), resolve_plane(&sf.plane, &Scope::new(&self.part.parameters)).ok()?)),
-                _ => None,
-            });
             if let Some((sketch, plane)) = found {
                 let del = ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace));
                 if del {
@@ -1378,6 +1656,9 @@ impl App {
         if let Some(sk) = &self.sketcher {
             painter.text(rect.left_top() + egui::vec2(12.0, 14.0), egui::Align2::LEFT_CENTER, format!("SKETCH MODE · {:?} tool · right-drag rotate · Esc cancels · Del deletes", sk.tool), egui::FontId::proportional(13.0), ACCENT);
         }
+        if let Some(m) = self.sketcher.as_mut().and_then(|s| s.message.take()) {
+            self.toast = Some((m, Instant::now(), false));
+        }
         if let Some((fid, nsk)) = sketch_edit {
             self.commit(|p| {
                 if let Some(Feature { kind: FeatureKind::Sketch(sf), .. }) = p.feature_mut(&fid) {
@@ -1385,7 +1666,11 @@ impl App {
                 }
             });
         }
-        if self.part.features.is_empty() {
+        if asm_mode {
+            if self.asm.as_ref().is_some_and(|a| a.model.asm.components.is_empty()) {
+                painter.text(rect.center(), egui::Align2::CENTER_CENTER, "Insert Component to add parts to the assembly", egui::FontId::proportional(16.0), Color32::from_gray(110));
+            }
+        } else if self.part.features.is_empty() {
             painter.text(rect.center(), egui::Align2::CENTER_CENTER, "Sketch -> choose a plane to begin\nor connect an AI via the RustWorks MCP server", egui::FontId::proportional(16.0), Color32::from_gray(110));
         }
     }
@@ -1429,6 +1714,18 @@ impl eframe::App for App {
             }
         }
         self.poll_disk();
+        if let Some(a) = self.asm.as_mut() {
+            if self.asm_active {
+                a.poll();
+            }
+            for (m, e) in std::mem::take(&mut a.notes) {
+                self.toast = Some((m, Instant::now(), e));
+            }
+            if let Some(p) = a.open_part.take() {
+                self.open(p);
+                self.set_asm_active(false);
+            }
+        }
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
 
         // Shortcuts
@@ -1443,11 +1740,18 @@ impl eframe::App for App {
             )
         });
         let typing = ui.ctx().memory(|m| m.focused().is_some());
+        let asm_mode = self.asm_active;
         if undo {
-            self.undo();
+            match (asm_mode, self.asm.as_mut()) {
+                (true, Some(a)) => a.undo(),
+                _ => self.undo(),
+            }
         }
         if redo {
-            self.redo();
+            match (asm_mode, self.asm.as_mut()) {
+                (true, Some(a)) => a.redo(),
+                _ => self.redo(),
+            }
         }
         if save {
             self.save_or_save_as();
@@ -1458,7 +1762,7 @@ impl eframe::App for App {
                     vp.fit(None, true);
                 }
             }
-            if del {
+            if del && !asm_mode {
                 if let Some(id) = self.selected.clone() {
                     self.feature_action(&id, "delete");
                 }
@@ -1466,14 +1770,25 @@ impl eframe::App for App {
         }
 
         egui::Panel::top("menu").show(ui, |ui| self.menu_bar(ui));
-        egui::Panel::top("commands")
-            .frame(egui::Frame::new().fill(Color32::from_rgb(236, 240, 246)).inner_margin(egui::Margin::symmetric(8, 5)))
-            .show(ui, |ui| self.command_bar(ui));
-        egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
-        egui::Panel::left("tree").resizable(true).default_size(250.0).show(ui, |ui| self.feature_tree(ui));
-        egui::Panel::right("props").resizable(true).default_size(290.0).show(ui, |ui| {
-            egui::ScrollArea::vertical().id_salt("props").show(ui, |ui| self.property_manager(ui));
-        });
+        if let (true, Some(a)) = (asm_mode, self.asm.as_mut()) {
+            egui::Panel::top("commands")
+                .frame(egui::Frame::new().fill(Color32::from_rgb(240, 236, 228)).inner_margin(egui::Margin::symmetric(8, 5)))
+                .show(ui, |ui| a.command_bar(ui));
+            egui::Panel::bottom("status").show(ui, |ui| ui.horizontal(|ui| a.status_bar(ui)));
+            egui::Panel::left("tree").resizable(true).default_size(250.0).show(ui, |ui| a.tree(ui));
+            egui::Panel::right("props").resizable(true).default_size(290.0).show(ui, |ui| {
+                egui::ScrollArea::vertical().id_salt("props").show(ui, |ui| a.property_manager(ui));
+            });
+        } else {
+            egui::Panel::top("commands")
+                .frame(egui::Frame::new().fill(Color32::from_rgb(236, 240, 246)).inner_margin(egui::Margin::symmetric(8, 5)))
+                .show(ui, |ui| self.command_bar(ui));
+            egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
+            egui::Panel::left("tree").resizable(true).default_size(250.0).show(ui, |ui| self.feature_tree(ui));
+            egui::Panel::right("props").resizable(true).default_size(290.0).show(ui, |ui| {
+                egui::ScrollArea::vertical().id_salt("props").show(ui, |ui| self.property_manager(ui));
+            });
+        }
         egui::CentralPanel::default().frame(egui::Frame::new()).show(ui, |ui| self.viewport(ui, rs.as_ref()));
 
         if let Some((msg, t, err)) = &self.toast {
@@ -1492,7 +1807,9 @@ impl eframe::App for App {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        if let Some(p) = &self.path {
+        if let (true, Some(p)) = (self.asm_active, self.asm.as_ref().and_then(|a| a.model.path.clone())) {
+            storage.set_string("last_file", p.display().to_string());
+        } else if let Some(p) = &self.path {
             storage.set_string("last_file", p.display().to_string());
         }
     }
@@ -1501,7 +1818,7 @@ impl eframe::App for App {
 // ---------- widgets & helpers ----------
 
 /// Numeric-or-expression field. Commits on Enter / focus loss. Returns true if changed.
-fn value_edit(ui: &mut egui::Ui, id: egui::Id, v: &mut Value, width: f32) -> bool {
+pub(crate) fn value_edit(ui: &mut egui::Ui, id: egui::Id, v: &mut Value, width: f32) -> bool {
     let mut text = ui.data_mut(|d| d.get_temp::<String>(id)).unwrap_or_else(|| v.to_string());
     let r = ui.add(egui::TextEdit::singleline(&mut text).id(id).desired_width(width));
     if r.has_focus() {
@@ -1530,10 +1847,14 @@ fn parse_value(s: &str) -> Value {
 }
 
 fn vec3_edit(ui: &mut egui::Ui, v: &mut [f64; 3]) -> bool {
+    vec3_edit_speed(ui, v, 0.05)
+}
+
+pub(crate) fn vec3_edit_speed(ui: &mut egui::Ui, v: &mut [f64; 3], speed: f64) -> bool {
     let mut c = false;
     ui.horizontal(|ui| {
         for (k, l) in ["x ", "y ", "z "].iter().enumerate() {
-            c |= ui.add(egui::DragValue::new(&mut v[k]).speed(0.05).prefix(*l)).changed();
+            c |= ui.add(egui::DragValue::new(&mut v[k]).speed(speed).prefix(*l)).changed();
         }
     });
     c
@@ -1562,8 +1883,9 @@ fn sketch_combo(ui: &mut egui::Ui, cur: &mut String, sketches: &[(String, String
     c
 }
 
-fn plane_combo(ui: &mut egui::Ui, plane: &mut PlaneRef) -> bool {
+fn plane_combo(ui: &mut egui::Ui, plane: &mut PlaneRef, refs: &[(String, String)]) -> bool {
     let label = match plane {
+        PlaneRef::Feature(id) => refs.iter().find(|r| &r.0 == id).map(|r| r.1.clone()).unwrap_or_else(|| id.clone()),
         PlaneRef::Named(StdPlane::Front) => "Front".to_string(),
         PlaneRef::Named(StdPlane::Top) => "Top".to_string(),
         PlaneRef::Named(StdPlane::Right) => "Right".to_string(),
@@ -1575,6 +1897,12 @@ fn plane_combo(ui: &mut egui::Ui, plane: &mut PlaneRef) -> bool {
         for (l, p) in [("Front", StdPlane::Front), ("Top", StdPlane::Top), ("Right", StdPlane::Right)] {
             if ui.selectable_label(false, l).clicked() {
                 *plane = PlaneRef::Named(p);
+                c = true;
+            }
+        }
+        for (id, name) in refs {
+            if ui.selectable_label(false, name).clicked() {
+                *plane = PlaneRef::Feature(id.clone());
                 c = true;
             }
         }

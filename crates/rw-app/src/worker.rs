@@ -25,6 +25,7 @@ pub struct Rebuilt {
     pub mass: Option<MassProps>,
     pub status: Vec<FeatureStatus>,
     pub sketches: Vec<SolvedSketch>,
+    pub ref_planes: Vec<(String, rw_core::kernel::Plane)>,
     pub millis: f64,
     pub cache_hits: usize,
 }
@@ -85,6 +86,7 @@ fn handle(regen: &mut Regenerator, body: &mut Option<Solid>, req: Request, tx: &
                 mass: out.mass,
                 status: out.status,
                 sketches: out.sketches,
+                ref_planes: out.ref_planes,
                 millis: out.millis,
                 cache_hits: out.cache_hits,
             })));

@@ -37,6 +37,8 @@ struct State {
     sketches: HashMap<String, SolvedSketch>,
     /// Re-snapped edge reference points per feature (written back to the doc).
     snaps: HashMap<String, Vec<EdgeRef>>,
+    /// Reference planes by feature id and by name.
+    planes: HashMap<String, Plane>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -86,6 +88,14 @@ impl SolvedSketch {
                         .collect();
                     out.push((v, *construction));
                 }
+                Entity::Spline { points, construction, .. } => {
+                    let xy: Vec<[f64; 2]> = points.iter().map(|p| pt(p)).collect();
+                    let closed = points.len() > 3 && points.first() == points.last();
+                    let poles = rw_sketch::spline_poles(&xy, closed);
+                    let n = (poles.len().max(1) - 1) / 3;
+                    let v = (0..=n * 24).map(|k| to3(rw_sketch::profile::bezier_point(&poles, k as f64 / 24.0))).collect();
+                    out.push((v, *construction));
+                }
                 Entity::Point { .. } => {}
             }
         }
@@ -116,6 +126,8 @@ pub struct RegenOutput {
     pub status: Vec<FeatureStatus>,
     /// Solved sketches in feature order.
     pub sketches: Vec<SolvedSketch>,
+    /// Reference planes (feature id, plane) in feature order.
+    pub ref_planes: Vec<(String, Plane)>,
     /// The input part with sketch geometry updated to solved positions.
     pub solved: Part,
     pub millis: f64,
@@ -136,6 +148,14 @@ pub struct Regenerator {
     cache: Vec<(u64, State, FeatureStatus)>,
 }
 
+/// Resolves a plane reference, looking reference-plane features up in `planes`.
+pub fn resolve_plane_in(p: &PlaneRef, scope: &Scope, planes: &HashMap<String, Plane>) -> Result<Plane> {
+    match p {
+        PlaneRef::Feature(id) => planes.get(id).copied().ok_or_else(|| anyhow!("reference plane `{id}` not found (or it failed / is suppressed / comes later)")),
+        p => resolve_plane(p, scope),
+    }
+}
+
 pub fn resolve_plane(p: &PlaneRef, scope: &Scope) -> Result<Plane> {
     let std = |s: &StdPlane| match s {
         StdPlane::Front => Plane { origin: [0.0; 3], x: [1.0, 0.0, 0.0], y: [0.0, 1.0, 0.0] },
@@ -146,6 +166,7 @@ pub fn resolve_plane(p: &PlaneRef, scope: &Scope) -> Result<Plane> {
         PlaneRef::Named(s) => std(s),
         PlaneRef::Offset { base, offset } => std(base).offset(scope.eval(offset)?),
         PlaneRef::Custom { origin, normal, x_dir } => Plane::new(*origin, *normal, *x_dir)?,
+        PlaneRef::Feature(id) => bail!("reference plane `{id}` cannot be resolved outside a rebuild"),
     })
 }
 
@@ -245,12 +266,19 @@ impl Regenerator {
             None => (None, None),
         };
         let sketches = part.features.iter().filter_map(|f| state.sketches.get(&f.id).cloned()).collect();
+        let ref_planes = part
+            .features
+            .iter()
+            .filter(|f| matches!(f.kind, FeatureKind::Plane(_)))
+            .filter_map(|f| state.planes.get(&f.id).map(|p| (f.id.clone(), *p)))
+            .collect();
         RegenOutput {
             body: state.body,
             mesh,
             mass,
             status,
             sketches,
+            ref_planes,
             solved,
             millis: t0.elapsed().as_secs_f64() * 1000.0,
             cache_hits: hits,
@@ -300,7 +328,7 @@ fn sketch_of<'a>(state: &'a State, id: &str) -> Result<&'a SolvedSketch> {
 fn apply(state: &mut State, f: &Feature, scope: &Scope, fs: &mut FeatureStatus) -> Result<()> {
     match &f.kind {
         FeatureKind::Sketch(sf) => {
-            let plane = resolve_plane(&sf.plane, scope)?;
+            let plane = resolve_plane_in(&sf.plane, scope, &state.planes)?;
             let mut sk = sf.sketch.clone();
             let report = sk.solve(scope)?;
             fs.sketch = Some(report.clone());
@@ -400,7 +428,7 @@ fn apply(state: &mut State, f: &Feature, scope: &Scope, fs: &mut FeatureStatus) 
             state.tools.insert(f.id.clone(), tool);
         }
         FeatureKind::Hole(h) => {
-            let plane = resolve_plane(&h.plane, scope)?;
+            let plane = resolve_plane_in(&h.plane, scope, &state.planes)?;
             let r = num(scope, &h.diameter, "diameter")? / 2.0;
             if r <= 0.0 {
                 bail!("hole diameter must be positive");
@@ -519,18 +547,7 @@ fn apply(state: &mut State, f: &Feature, scope: &Scope, fs: &mut FeatureStatus) 
         FeatureKind::Shell(sh) => {
             let body = state.body.clone().ok_or_else(|| anyhow!("nothing to shell"))?;
             let t = num(scope, &sh.thickness, "thickness")?;
-            let scale = rw_kernel::scale_of(&body);
-            let mesh = rw_kernel::tessellate(&body, (scale / 300.0).max(0.01), false);
-            let mut faces = vec![];
-            for p in &sh.open_faces {
-                let (fi, d) = rw_kernel::face_near(&mesh, *p).ok_or_else(|| anyhow!("body has no faces"))?;
-                if d > (scale * 0.03).max(0.5) {
-                    bail!("no face near ({:.3}, {:.3}, {:.3})", p[0], p[1], p[2]);
-                }
-                if !faces.contains(&fi) {
-                    faces.push(fi);
-                }
-            }
+            let faces = faces_near(&body, &sh.open_faces)?;
             state.body = Some(rw_kernel::shell(&body, &faces, t)?);
         }
         FeatureKind::Loft(l) => {
@@ -555,8 +572,40 @@ fn apply(state: &mut State, f: &Feature, scope: &Scope, fs: &mut FeatureStatus) 
             combine(state, &tool, fs)?;
             state.tools.insert(f.id.clone(), tool);
         }
+        FeatureKind::Plane(rp) => {
+            let pl = ref_plane(rp, scope, &state.planes)?;
+            state.planes.insert(f.id.clone(), pl);
+            state.planes.insert(f.name.clone(), pl);
+        }
+        FeatureKind::Sweep(sw) => {
+            let prof = sketch_of(state, &sw.profile)?.clone();
+            let path_sk = state
+                .sketches
+                .get(&sw.path)
+                .ok_or_else(|| anyhow!("path sketch `{}` not found (or it failed / is suppressed)", sw.path))?;
+            let paths = path_sk.sketch.paths().map_err(|e| anyhow!("path sketch `{}`: {e}", sw.path))?;
+            if paths.len() != 1 {
+                bail!("path sketch `{}` must contain exactly one connected chain (found {})", sw.path, paths.len());
+            }
+            let mut solids = vec![];
+            for r in &prof.regions {
+                solids.push(rw_kernel::sweep(&prof.plane, r, &path_sk.plane, &paths[0])?);
+            }
+            let tool = Tool::plain(solids, sw.op);
+            combine(state, &tool, fs)?;
+            state.tools.insert(f.id.clone(), tool);
+        }
+        FeatureKind::Draft(d) => {
+            let body = state.body.clone().ok_or_else(|| anyhow!("nothing to draft"))?;
+            let ang = num(scope, &d.angle, "angle")?;
+            let np = resolve_plane_in(&d.neutral, scope, &state.planes)?;
+            let n = np.normal();
+            let pull = if d.reverse { [-n[0], -n[1], -n[2]] } else { n };
+            let faces = faces_near(&body, &d.faces)?;
+            state.body = Some(rw_kernel::draft(&body, &faces, pull, ang, np.origin, n)?);
+        }
         FeatureKind::Mirror(m) => {
-            let plane = resolve_plane(&m.plane, scope)?;
+            let plane = resolve_plane_in(&m.plane, scope, &state.planes)?;
             let x = Xform::Mirror { origin: plane.origin, normal: plane.normal() };
             if m.features.is_empty() {
                 let body = state.body.clone().ok_or_else(|| anyhow!("nothing to mirror"))?;
@@ -587,32 +636,64 @@ fn pick_edges(state: &mut State, f: &Feature, body: &Solid, refs: &[EdgeRef], al
     }
     let scale = rw_kernel::scale_of(body);
     let exact = (scale * 0.01).max(0.05);
+    // body bounding box from the edges, for size-independent positions
+    let mut lo = [f64::INFINITY; 3];
+    let mut hi = [f64::NEG_INFINITY; 3];
+    for e in &es {
+        for p in &e.polyline {
+            for k in 0..3 {
+                lo[k] = lo[k].min(p[k] as f64);
+                hi[k] = hi[k].max(p[k] as f64);
+            }
+        }
+    }
+    let rel_of = |p: [f64; 3]| -> [f64; 3] { [0, 1, 2].map(|k| if hi[k] - lo[k] > 1e-9 { (p[k] - lo[k]) / (hi[k] - lo[k]) } else { 0.5 }) };
     let mut idx = vec![];
     let mut snapped = vec![];
     for r in refs {
         let p = r.at();
-        let (kind, length) = match r {
-            EdgeRef::Tagged { kind, length, .. } => (kind.clone(), *length),
-            EdgeRef::Point(_) => (None, None),
+        let (kind, length, rel) = match r {
+            EdgeRef::Tagged { kind, length, rel, .. } => (kind.clone(), *length, *rel),
+            EdgeRef::Point(_) => (None, None, None),
         };
-        let mut ds: Vec<(usize, f64)> = es
-            .iter()
-            .map(|e| {
-                let mut score = e.distance_to(p);
-                if kind.as_deref().is_some_and(|k| k != e.kind) {
-                    score += scale;
+        let penalty = |e: &rw_kernel::EdgeInfo| {
+            let mut s = 0.0;
+            if kind.as_deref().is_some_and(|k| k != e.kind) {
+                s += scale;
+            }
+            if let Some(l) = length {
+                s += (e.length - l).abs();
+            }
+            s
+        };
+        let rank = |score: &dyn Fn(&rw_kernel::EdgeInfo) -> f64| -> (usize, f64, f64) {
+            let mut ds: Vec<(usize, f64)> = es.iter().map(|e| (e.index, score(e))).collect();
+            ds.sort_by(|a, b| a.1.total_cmp(&b.1));
+            let (i, d) = ds.first().copied().unwrap_or((usize::MAX, f64::INFINITY));
+            (i, d, ds.get(1).map(|x| x.1).unwrap_or(f64::INFINITY))
+        };
+        if es.is_empty() {
+            bail!("body has no edges");
+        }
+        // 1. absolute position + signature
+        let (mut i, d, d2) = rank(&|e| e.distance_to(p) + penalty(e));
+        let mut ok = d <= exact || (d < 0.4 * d2 && d < 0.25 * scale);
+        // 2. position relative to the (resized) body + signature
+        if !ok {
+            if let Some(rp) = rel {
+                let size = [0, 1, 2].map(|k| (hi[k] - lo[k]).max(1e-9));
+                let (ri, rd, rd2) = rank(&|e| {
+                    let q = rel_of(e.mid);
+                    let dv = [0, 1, 2].map(|k| (q[k] - rp[k]) * size[k]);
+                    (dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2]).sqrt() + penalty(e)
+                });
+                if rd < 0.4 * rd2 && rd < 0.25 * scale {
+                    i = ri;
+                    ok = true;
                 }
-                if let Some(l) = length {
-                    score += (e.length - l).abs();
-                }
-                (e.index, score)
-            })
-            .collect();
-        ds.sort_by(|a, b| a.1.total_cmp(&b.1));
-        let (i, d) = *ds.first().ok_or_else(|| anyhow!("body has no edges"))?;
-        let d2 = ds.get(1).map(|x| x.1).unwrap_or(f64::INFINITY);
-        let unambiguous = d < 0.4 * d2 && d < 0.25 * scale;
-        if d > exact && !unambiguous {
+            }
+        }
+        if !ok {
             bail!(
                 "edge reference ({:.3}, {:.3}, {:.3}) is ambiguous after the change (best match {d:.3}, next {d2:.3}); reselect the edge",
                 p[0], p[1], p[2]
@@ -623,6 +704,7 @@ fn pick_edges(state: &mut State, f: &Feature, body: &Solid, refs: &[EdgeRef], al
             at: e.mid.map(|v| (v * 1e4).round() / 1e4),
             kind: Some(e.kind.to_string()),
             length: Some((e.length * 1e4).round() / 1e4),
+            rel: Some(rel_of(e.mid).map(|v| (v * 1e4).round() / 1e4)),
         });
         if !idx.contains(&i) {
             idx.push(i);
@@ -630,6 +712,47 @@ fn pick_edges(state: &mut State, f: &Feature, body: &Solid, refs: &[EdgeRef], al
     }
     state.snaps.insert(f.id.clone(), snapped);
     Ok(idx)
+}
+
+/// Indices of the body faces nearest to each point (deduplicated).
+pub fn faces_near(body: &Solid, pts: &[[f64; 3]]) -> Result<Vec<usize>> {
+    let scale = rw_kernel::scale_of(body);
+    let mesh = rw_kernel::tessellate(body, (scale / 300.0).max(0.01), false);
+    let mut faces = vec![];
+    for p in pts {
+        let (fi, d) = rw_kernel::face_near(&mesh, *p).ok_or_else(|| anyhow!("body has no faces"))?;
+        if d > (scale * 0.03).max(0.5) {
+            bail!("no face near ({:.3}, {:.3}, {:.3})", p[0], p[1], p[2]);
+        }
+        if !faces.contains(&fi) {
+            faces.push(fi);
+        }
+    }
+    Ok(faces)
+}
+
+fn ref_plane(rp: &RefPlane, scope: &Scope, planes: &HashMap<String, Plane>) -> Result<Plane> {
+    let mut pl = if let Some([a, b, c]) = rp.points {
+        let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+        Plane::new(a, n, Some(u)).context("the three points are collinear")?
+    } else {
+        let base = rp.base.as_ref().ok_or_else(|| anyhow!("reference plane needs `base` or `points`"))?;
+        let mut b = resolve_plane_in(base, scope, planes)?;
+        if let Some(a) = &rp.angle {
+            let t = num(scope, a, "angle")?.to_radians();
+            let (sn, cs) = t.sin_cos();
+            let n = b.normal();
+            // tilt about the base plane's X axis
+            b.y = [b.y[0] * cs + n[0] * sn, b.y[1] * cs + n[1] * sn, b.y[2] * cs + n[2] * sn];
+        }
+        b.offset(num(scope, &rp.offset, "offset")?)
+    };
+    if rp.flip {
+        pl.y = pl.y.map(|v| -v);
+    }
+    Ok(pl)
 }
 
 fn normalize(v: [f64; 3]) -> Result<[f64; 3]> {

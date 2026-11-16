@@ -4,7 +4,8 @@
 //! tools: robust booleans (including coplanar contact), fillets, chamfers,
 //! shelling, exact mass properties and STEP import/export.
 
-use crate::{BoolOp, EdgeInfo, FaceInfo, MassProps, Mesh, Plane, UnionKind, Xform};
+use crate::occ_ext::ext;
+use crate::{BoolOp, EdgeInfo, FaceGeom, FaceInfo, MassProps, Mesh, Plane, UnionKind, Xform};
 use anyhow::{bail, Result};
 use cxx::UniquePtr;
 use opencascade_sys as ffi;
@@ -80,6 +81,10 @@ fn loop_wire(plane: &Plane, lp: &Loop) -> Result<UniquePtr<ffi::topo_ds::TopoDS_
         let e = match s {
             Segment::Line { .. } => edge_line(a, b),
             Segment::Arc { .. } => edge_arc(a, plane.to3d(s.mid()), b),
+            Segment::Spline { poles } => {
+                let flat: Vec<f64> = poles.iter().flat_map(|p| plane.to3d(*p)).collect();
+                ext::rw_bezier_edge(&flat).map_err(|e| anyhow::anyhow!("{e}"))?
+            }
             Segment::Circle { .. } => unreachable!(),
         };
         mk.pin_mut().add_edge(&e);
@@ -560,4 +565,86 @@ fn point_on_face(m: &Mesh, fi: usize) -> Option<[f64; 3]> {
         }
     }
     best.map(|b| b.1)
+}
+
+fn ok_shape(r: std::result::Result<UniquePtr<TopoDS_Shape>, cxx::Exception>) -> Result<Solid> {
+    let s = r.map_err(|e| anyhow::anyhow!("{}", e.what()))?;
+    if s.IsNull() || is_empty(&s) {
+        bail!("operation produced no geometry");
+    }
+    Ok(Solid { inner: s })
+}
+
+/// Sweeps a planar profile region along a path (open or closed chain of
+/// sketch segments). The profile is used where it is drawn; place it at the
+/// start of the path, typically on a plane normal to it.
+pub fn sweep(profile_plane: &Plane, region: &Region, path_plane: &Plane, path: &Loop) -> Result<Solid> {
+    let spine = loop_wire(path_plane, path)?;
+    let one = |lp: &Loop| -> Result<Solid> {
+        let w = loop_wire(profile_plane, lp)?;
+        ok_shape(ext::rw_sweep(&spine, &w))
+    };
+    let mut body = one(&region.outer)?;
+    for h in &region.holes {
+        let mut hole = h.clone();
+        hole.reverse();
+        body = boolean(&body, &one(&hole)?, BoolOp::Subtract, 1.0)?;
+    }
+    if volume(&body.inner).abs() < 1e-9 {
+        bail!("sweep produced an empty solid");
+    }
+    Ok(body)
+}
+
+/// Tilts `faces` by `angle_deg` about their intersection with the neutral
+/// plane, relative to the pull direction (mold draft).
+pub fn draft(s: &Solid, faces: &[usize], pull: [f64; 3], angle_deg: f64, neutral_origin: [f64; 3], neutral_normal: [f64; 3]) -> Result<Solid> {
+    if faces.is_empty() {
+        bail!("select faces to draft");
+    }
+    let idx: Vec<i32> = faces.iter().map(|&f| f as i32).collect();
+    let nt = [neutral_origin[0], neutral_origin[1], neutral_origin[2], neutral_normal[0], neutral_normal[1], neutral_normal[2]];
+    let out = ok_shape(ext::rw_draft(&s.inner, &idx, &pull, angle_deg.to_radians(), &nt))?;
+    if volume(&out.inner).abs() < 1e-9 {
+        bail!("draft produced an empty solid");
+    }
+    Ok(out)
+}
+
+/// Exact surface type and parameters of face `fi`.
+pub fn face_geom(s: &Solid, fi: usize) -> Result<FaceGeom> {
+    let mut o = [0.0f64; 7];
+    let k = ext::rw_face_geom(&s.inner, fi as i32, &mut o).map_err(|e| anyhow::anyhow!("{}", e.what()))?;
+    let (p, d) = ([o[0], o[1], o[2]], [o[3], o[4], o[5]]);
+    Ok(match k {
+        1 => FaceGeom::Plane { origin: p, normal: d },
+        2 => FaceGeom::Cylinder { origin: p, axis: d, radius: o[6] },
+        3 => FaceGeom::Cone { apex: p, axis: d, half_angle: o[6] },
+        4 => FaceGeom::Sphere { center: p, radius: o[6] },
+        _ => FaceGeom::Other,
+    })
+}
+
+/// Groups solids into one compound shape (no boolean), e.g. an assembly.
+pub fn compound(solids: &[Solid]) -> Solid {
+    let mut c = ext::rw_compound_new();
+    for s in solids {
+        ext::rw_compound_add(c.pin_mut(), &s.inner);
+    }
+    Solid { inner: c }
+}
+
+/// Applies a rigid row-major 4x4 transform (rotation + translation).
+pub fn transform_matrix(s: &Solid, m: &[[f64; 4]; 4]) -> Result<Solid> {
+    let flat: Vec<f64> = m[..3].iter().flat_map(|r| r.iter().copied()).collect();
+    ext::rw_transform(&s.inner, &flat).map(|inner| Solid { inner }).map_err(|e| anyhow::anyhow!("{}", e.what()))
+}
+
+/// Volume of the common part of two solids (0 when they do not overlap).
+pub fn overlap_volume(a: &Solid, b: &Solid) -> f64 {
+    let mut c = ffi::b_rep_algo_api::BRepAlgoAPI_Common_new(&a.inner, &b.inner);
+    if !c.IsDone() {
+        return 0.0;
+    }
+    volume(c.pin_mut().Shape()).abs()
 }

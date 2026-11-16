@@ -9,6 +9,8 @@ pub use mesh::{FaceInfo, MassProps, Mesh};
 #[cfg(feature = "occt")]
 mod occ;
 #[cfg(feature = "occt")]
+mod occ_ext;
+#[cfg(feature = "occt")]
 pub use occ::*;
 
 #[cfg(all(feature = "truck", not(feature = "occt")))]
@@ -115,6 +117,17 @@ impl Xform {
             Xform::Mirror { origin, normal } => reflection(origin, normal),
         }
     }
+}
+
+/// Analytic geometry of a B-rep face (used by assembly mates).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FaceGeom {
+    Plane { origin: [f64; 3], normal: [f64; 3] },
+    Cylinder { origin: [f64; 3], axis: [f64; 3], radius: f64 },
+    Cone { apex: [f64; 3], axis: [f64; 3], half_angle: f64 },
+    Sphere { center: [f64; 3], radius: f64 },
+    Other,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -323,5 +336,56 @@ mod tests {
         close(mp(&u).volume, 10000.0, 1e-6);
         assert_eq!(tessellate(&u, 0.05, true).faces.len(), 6, "coplanar faces merged");
     }
-}
 
+    #[cfg(feature = "occt")]
+    #[test]
+    fn sweep_draft_facegeom() {
+        // 2x2 square swept along an L path (line + quarter arc + line) in the XY plane
+        let mut path = Sketch::default();
+        path.add_line([0.0, 0.0], [0.0, 20.0], false);
+        path.add_arc([10.0, 20.0], [10.0, 30.0], [0.0, 20.0], false);
+        let front = Plane::new([0.0; 3], [0.0, 0.0, 1.0], Some([1.0, 0.0, 0.0])).unwrap();
+        let p = &path.paths().unwrap()[0];
+        // profile on the XZ plane at the path start (normal +Y)
+        let mut prof = Sketch::default();
+        prof.add_circle([0.0, 0.0], 1.0, false);
+        let top = Plane::new([0.0; 3], [0.0, 1.0, 0.0], Some([1.0, 0.0, 0.0])).unwrap();
+        let r = &prof.regions().unwrap()[0];
+        let s = sweep(&top, r, &front, p).unwrap();
+        let len = 20.0 + std::f64::consts::PI * 10.0 / 2.0;
+        close(mp(&s).volume, std::f64::consts::PI * len, 1e-3);
+        // spline profile extrudes
+        let mut sp = Sketch::default();
+        sp.add_spline(&[[0.0, 0.0], [10.0, 6.0], [20.0, 0.0]], false);
+        sp.add_line([20.0, 0.0], [0.0, 0.0], false);
+        let reg = &sp.regions().unwrap()[0];
+        let e = extrude(&region_face(&front, reg).unwrap(), [0.0, 0.0, 2.0]).unwrap();
+        close(mp(&e).volume, reg.area() * 2.0, 2e-3);
+        // draft the four side faces of a block by 5 degrees about its base
+        let mut sk = Sketch::default();
+        sk.add_rectangle([0.0, 0.0], [20.0, 20.0]);
+        let block = extrude(&region_face(&top, &sk.regions().unwrap()[0]).unwrap(), [0.0, 10.0, 0.0]).unwrap();
+        let m = tessellate(&block, 0.05, true);
+        let sides: Vec<usize> = m.faces.iter().filter(|f| f.normal[1].abs() < 0.5).map(|f| f.index).collect();
+        assert_eq!(sides.len(), 4);
+        let d = draft(&block, &sides, [0.0, 1.0, 0.0], 5.0, [0.0; 3], [0.0, 1.0, 0.0]).unwrap();
+        let v = mp(&d).volume;
+        assert!(v < 4000.0 && v > 3000.0, "drafted volume {v}");
+        match face_geom(&block, sides[0]).unwrap() {
+            FaceGeom::Plane { normal, .. } => assert!(normal[1].abs() < 1e-9),
+            g => panic!("{g:?}"),
+        }
+        let cyl = extrude(&region_face(&front, &prof.regions().unwrap()[0]).unwrap(), [0.0, 0.0, 5.0]).unwrap();
+        let cm = tessellate(&cyl, 0.05, true);
+        let side = cm.faces.iter().find(|f| f.kind == "curved").unwrap().index;
+        match face_geom(&cyl, side).unwrap() {
+            FaceGeom::Cylinder { radius, axis, .. } => {
+                assert!((radius - 1.0).abs() < 1e-9 && axis[2].abs() > 0.999)
+            }
+            g => panic!("{g:?}"),
+        }
+        let both = compound(&[cyl.clone(), transform_matrix(&cyl, &translation([10.0, 0.0, 0.0])).unwrap()]);
+        close(mp(&both).volume, 2.0 * std::f64::consts::PI * 5.0, 1e-6);
+        assert!(overlap_volume(&cyl, &both) > 15.0);
+    }
+}

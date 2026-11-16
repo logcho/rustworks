@@ -240,3 +240,136 @@ fn loft_and_step_roundtrip() {
     assert_vol(&out2, expect, 1e-4);
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn ref_plane_sweep_draft() {
+    let mut p = Part::new("rp");
+    let pl = push(&mut p, "Plane", FeatureKind::Plane(RefPlane { base: Some(PlaneRef::Named(StdPlane::Top)), offset: 5.0.into(), angle: None, points: None, flip: false }));
+    let mut sk = Sketch::default();
+    sk.add_rectangle([-10.0, -10.0], [10.0, 10.0]);
+    let s = sketch_feature(&mut p, PlaneRef::Feature(pl.clone()), sk);
+    push(&mut p, "Extrude", extrude(&s, 10.0, EndCondition::Blind, Op::Boss));
+    let mut r = Regenerator::new();
+    let out = r.regenerate(&p);
+    assert!(out.errors().is_empty(), "{:?}", out.errors());
+    let mp = out.mass.unwrap();
+    assert!((mp.volume - 4000.0).abs() < 1e-6 && (mp.bbox_min[1] - 5.0).abs() < 1e-3, "{mp:?}");
+    assert_eq!(out.ref_planes.len(), 1);
+    // draft the +X side face 5° hinged at the reference plane, pulling +Y
+    push(&mut p, "Draft", FeatureKind::Draft(Draft { faces: vec![[10.0, 10.0, 0.0]], neutral: PlaneRef::Feature(pl.clone()), angle: 5.0.into(), reverse: false }));
+    let out = r.regenerate(&p);
+    assert!(out.errors().is_empty(), "{:?}", out.errors());
+    let v = out.mass.unwrap().volume;
+    let wedge = 0.5 * 10.0 * 10.0 * 5f64.to_radians().tan() * 20.0;
+    assert!((v - (4000.0 - wedge)).abs() < 1e-3 || (v - (4000.0 + wedge)).abs() < 1e-3, "drafted volume {v}, wedge {wedge}");
+    // the plane cannot be deleted while used
+    assert_eq!(p.dependents(&pl).len(), 2);
+
+    // sweep a r=1 circle along a spline path
+    let mut q = Part::new("sw");
+    let mut path = Sketch::default();
+    path.add_spline(&[[0.0, 0.0], [4.0, 10.0], [0.0, 20.0], [-4.0, 30.0]], false);
+    let ps = sketch_feature(&mut q, PlaneRef::Named(StdPlane::Front), path);
+    let mut prof = Sketch::default();
+    prof.add_circle([0.0, 0.0], 1.0, false);
+    let pr = sketch_feature(&mut q, PlaneRef::Named(StdPlane::Top), prof);
+    push(&mut q, "Sweep", FeatureKind::Sweep(Sweep { profile: pr, path: ps, op: Op::Boss }));
+    let out = Regenerator::new().regenerate(&q);
+    assert!(out.errors().is_empty(), "{:?}", out.errors());
+    let v = out.mass.unwrap().volume;
+    assert!(v > PI * 30.0 && v < PI * 40.0, "swept volume {v}");
+}
+
+fn tmpdir(tag: &str) -> std::path::PathBuf {
+    let d = std::env::temp_dir().join(format!("rustworks-test-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+#[test]
+fn assembly_mates_dof_interference() {
+    use crate::assembly::*;
+    let dir = tmpdir("asm");
+    // plate 40x40x10 with a Ø10 through hole at the center
+    let mut plate = Part::new("plate");
+    let mut sk = Sketch::default();
+    sk.add_rectangle([-20.0, -20.0], [20.0, 20.0]);
+    let s = sketch_feature(&mut plate, PlaneRef::Named(StdPlane::Top), sk);
+    push(&mut plate, "Extrude", extrude(&s, 10.0, EndCondition::Blind, Op::Boss));
+    push(
+        &mut plate,
+        "Hole",
+        FeatureKind::Hole(Hole {
+            plane: PlaneRef::Offset { base: StdPlane::Top, offset: 10.0.into() },
+            points: vec![[0.0, 0.0]],
+            diameter: 10.0.into(),
+            depth: None,
+            counterbore: None,
+            countersink: None,
+        }),
+    );
+    model::write_part(&dir.join("plate.rwpart"), &plate).unwrap();
+    // pin Ø12 x 30
+    let mut pin = Part::new("pin");
+    let mut sk = Sketch::default();
+    sk.add_circle([0.0, 0.0], 6.0, false);
+    let s = sketch_feature(&mut pin, PlaneRef::Named(StdPlane::Top), sk);
+    push(&mut pin, "Extrude", extrude(&s, 30.0, EndCondition::Blind, Op::Boss));
+    model::write_part(&dir.join("pin.rwpart"), &pin).unwrap();
+
+    let mut a = Assembly::new("demo");
+    let comp = |id: &str, path: &str, pos: [f64; 3], rot: [f64; 3]| Component {
+        id: id.into(),
+        name: format!("{id}<1>"),
+        path: path.into(),
+        position: pos,
+        rotation: rot,
+        fixed: false,
+        suppressed: false,
+    };
+    a.components.push(comp("c1", "plate.rwpart", [0.0; 3], [0.0; 3]));
+    a.components.push(comp("c2", "pin.rwpart", [50.0, 5.0, 20.0], [30.0, 0.0, 10.0]));
+    let path = dir.join("demo.rwasm");
+    let mut m = AsmModel::new(a, Some(path.clone()));
+    assert!(m.out.errors().is_empty(), "{:?}", m.out.errors());
+    assert_eq!(m.out.solve.dof, 6);
+    let r = |c: &str, f: [f64; 3]| MateRef { component: c.into(), face: Some(f), plane: None, axis: None, point: None };
+    let mate = |kind, a, b| Mate { id: String::new(), name: String::new(), kind, a, b, value: None, aligned: false, suppressed: false };
+    m.add_mate(mate(MateKind::Concentric, r("c1", [5.0, 5.0, 0.0]), r("c2", [6.0, 15.0, 0.0]))).unwrap();
+    let top = m.add_mate(mate(MateKind::Coincident, r("c1", [15.0, 10.0, 15.0]), r("c2", [3.0, 0.0, 0.0]))).unwrap();
+    assert!(m.out.errors().is_empty(), "{:?}", m.out.errors());
+    assert_eq!(m.out.solve.status, "under_defined", "{:?}", m.out.solve);
+    assert_eq!(m.out.solve.dof, 1, "only spin about the pin axis remains");
+    let p = m.out.placement("c2").unwrap();
+    let o = p.point([0.0; 3]);
+    assert!(o[0].abs() < 1e-5 && (o[1] - 10.0).abs() < 1e-5 && o[2].abs() < 1e-5, "pin origin {o:?}");
+    let axis = p.dir([0.0, 1.0, 0.0]);
+    assert!(axis[1] > 0.99999, "pin points up {axis:?}");
+    assert!(m.out.interferences().unwrap().is_empty());
+    // push the pin through the plate: bottoms flush (aligned normals) → overlaps the Ø10 hole wall
+    m.edit(|asm| {
+        let mt = asm.mates.iter_mut().find(|x| x.id == top).unwrap();
+        mt.a.face = Some([15.0, 0.0, 15.0]);
+        mt.aligned = true;
+        Ok(())
+    })
+    .unwrap();
+    assert!(m.out.errors().is_empty(), "{:?}", m.out.errors());
+    let o = m.out.placement("c2").unwrap().point([0.0; 3]);
+    assert!(o[1].abs() < 1e-5, "pin bottom flush with plate bottom {o:?}");
+    let hits = m.out.interferences().unwrap();
+    assert_eq!(hits.len(), 1);
+    assert!((hits[0].2 - PI * 11.0 * 10.0).abs() < 1e-3, "{hits:?}");
+    // persistence + reload
+    let back = assembly::read_assembly(&path).unwrap();
+    assert_eq!(back.mates.len(), 2);
+    let m2 = AsmModel::open(&path).unwrap();
+    assert!(m2.out.errors().is_empty());
+    let step = dir.join("demo.step");
+    m2.export_step(&step).unwrap();
+    assert!(std::fs::read_to_string(&step).unwrap().contains("ISO-10303-21"));
+    let (v, _) = m2.out.mass();
+    assert!((v - (16000.0 - PI * 250.0 + PI * 36.0 * 30.0)).abs() < 1e-3, "{v}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

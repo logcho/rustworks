@@ -1,10 +1,14 @@
 //! RustWorks MCP server: exposes parametric part modeling to AI agents over
 //! the Model Context Protocol (JSON-RPC 2.0, newline-delimited, stdio).
 
+#![recursion_limit = "512"]
+
+mod asm;
 mod tools;
 
 use anyhow::{anyhow, bail, Context, Result};
 use rw_core::sketch::{Constraint, Entity, Sketch};
+use rw_core::assembly::AsmModel;
 use rw_core::*;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value as J};
@@ -15,6 +19,9 @@ const PROTOCOL: &str = "2025-06-18";
 
 struct Server {
     model: Option<Model>,
+    asm: Option<AsmModel>,
+    /// The assembly (not the part) is the active document for render/export/etc.
+    focus_asm: bool,
 }
 
 enum Reply {
@@ -24,9 +31,17 @@ enum Reply {
 
 fn main() -> Result<()> {
     // Positional arg: optional part file to open at startup.
-    let mut server = Server { model: None };
+    let mut server = Server { model: None, asm: None, focus_asm: false };
     if let Some(p) = std::env::args().nth(1) {
         let path = PathBuf::from(p);
+        if path.extension().is_some_and(|e| e == "rwasm") {
+            server.asm = Some(if path.exists() { AsmModel::open(&path)? } else {
+                let mut m = AsmModel::new(Assembly::new(path.file_stem().and_then(|s| s.to_str()).unwrap_or("assembly")), Some(path.clone()));
+                m.save()?;
+                m
+            });
+            server.focus_asm = true;
+        } else {
         server.model = Some(if path.exists() {
             Model::open(&path)?
         } else {
@@ -34,6 +49,7 @@ fn main() -> Result<()> {
             m.save_as(&path)?;
             m
         });
+        }
     }
     let stdin = std::io::stdin();
     let mut stdout = protocol_stdout();
@@ -112,6 +128,9 @@ impl Server {
     }
 
     fn call(&mut self, name: &str, a: &J) -> Result<Reply> {
+        if let Some(r) = self.asm_call(name, a) {
+            return r;
+        }
         match name {
             "new_part" => {
                 let nm: String = req(a, "name")?;
@@ -119,12 +138,14 @@ impl Server {
                 let mut m = Model::new(Part::new(&nm));
                 m.save_as(&path)?;
                 self.model = Some(m);
+                self.focus_asm = false;
                 Ok(Reply::Text(json!({"created": nm, "path": abs(&path)})))
             }
             "open_part" => {
                 let path: PathBuf = req(a, "path")?;
                 let m = Model::open(&path)?;
                 self.model = Some(m);
+                self.focus_asm = false;
                 let m = self.model.as_mut().unwrap();
                 Ok(Reply::Text(summary(m, json!({"opened": abs(&path)}))))
             }
@@ -182,6 +203,9 @@ impl Server {
                 let rm_e: Vec<String> = opt(a, "remove_entities")?.unwrap_or_default();
                 let mut rm_c: Vec<usize> = opt(a, "remove_constraints")?.unwrap_or_default();
                 let moves: Map<String, J> = opt(a, "move_points")?.unwrap_or_default();
+                let trims: Vec<J> = opt(a, "trim")?.unwrap_or_default();
+                let fillets: Vec<J> = opt(a, "fillet_corners")?.unwrap_or_default();
+                let offsets: Vec<J> = opt(a, "offset")?.unwrap_or_default();
                 let m = self.model()?;
                 let new_plane = match a.get("plane") {
                     Some(p) => Some(plane_arg(m, p)?),
@@ -201,7 +225,7 @@ impl Server {
                             sk.constraints.remove(i);
                         }
                     }
-                    remove_entities(sk, &rm_e);
+                    sk.remove(&rm_e);
                     for (pid, xy) in &moves {
                         let xy: [f64; 2] = serde_json::from_value(xy.clone())?;
                         match sk.entities.iter_mut().find(|e| e.id() == pid) {
@@ -214,6 +238,28 @@ impl Server {
                     }
                     created = add_shapes(sk, &shapes)?;
                     sk.constraints.extend(cons);
+                    let mut ops = vec![];
+                    for t in &trims {
+                        let e: String = req(t, "entity")?;
+                        let at: [f64; 2] = req(t, "at")?;
+                        let made = sk.trim(&e, at).with_context(|| format!("trim `{e}`"))?;
+                        ops.push(json!({"trim": e, "new_entities": made}));
+                    }
+                    for fc in &fillets {
+                        let pnt: String = req(fc, "point")?;
+                        let r: f64 = req(fc, "radius")?;
+                        let arc = sk.fillet_corner(&pnt, r).with_context(|| format!("fillet at `{pnt}`"))?;
+                        ops.push(json!({"fillet": pnt, "arc": arc}));
+                    }
+                    for o in &offsets {
+                        let es: Vec<String> = req(o, "entities")?;
+                        let d: f64 = req(o, "distance")?;
+                        let made = sk.offset(&es, d).context("offset")?;
+                        ops.push(json!({"offset": es, "new_entities": made}));
+                    }
+                    if !ops.is_empty() {
+                        created = json!({"shapes": created, "operations": ops});
+                    }
                     Ok(f.id.clone())
                 })?;
                 let info = sketch_info(m, &fid)?;
@@ -290,6 +336,49 @@ impl Server {
                 };
                 let features = self.resolve_ids(&opt::<Vec<String>>(a, "features")?.unwrap_or_default())?;
                 self.add_feature(a, "Mirror", FeatureKind::Mirror(Mirror { features, plane }))
+            }
+            "plane" => {
+                let base = match a.get("base") {
+                    Some(b) => Some(plane_arg(self.model()?, b)?),
+                    None => None,
+                };
+                let rp = RefPlane {
+                    base,
+                    offset: opt(a, "offset")?.unwrap_or_default(),
+                    angle: opt(a, "angle")?,
+                    points: opt(a, "points")?,
+                    flip: opt(a, "flip")?.unwrap_or(false),
+                };
+                if rp.base.is_none() && rp.points.is_none() {
+                    bail!("give `base` (+ offset/angle) or three `points`");
+                }
+                self.add_feature(a, "Plane", FeatureKind::Plane(rp))
+            }
+            "sweep" => {
+                let sw = Sweep {
+                    profile: self.resolve_id(&req::<String>(a, "profile")?)?,
+                    path: self.resolve_id(&req::<String>(a, "path")?)?,
+                    op: opt(a, "op")?.unwrap_or_default(),
+                };
+                let base = if sw.op == Op::Cut { "Cut-Sweep" } else { "Sweep" };
+                self.add_feature(a, base, FeatureKind::Sweep(sw))
+            }
+            "draft" => {
+                let mut pts: Vec<[f64; 3]> = opt(a, "face_points")?.unwrap_or_default();
+                let faces: Vec<usize> = opt(a, "faces")?.unwrap_or_default();
+                let m = self.model()?;
+                if !faces.is_empty() {
+                    let mesh = m.out.mesh.as_ref().ok_or_else(|| anyhow!("part has no body yet"))?;
+                    for fi in faces {
+                        pts.push(face_point(mesh, fi).ok_or_else(|| anyhow!("no face {fi}"))?);
+                    }
+                }
+                if pts.is_empty() {
+                    bail!("select faces to draft with `faces` or `face_points`");
+                }
+                let neutral = plane_arg(m, a.get("neutral_plane").ok_or_else(|| anyhow!("missing `neutral_plane`"))?)?;
+                let d = Draft { faces: pts, neutral, angle: req(a, "angle")?, reverse: opt(a, "reverse")?.unwrap_or(false) };
+                self.add_feature(a, "Draft", FeatureKind::Draft(d))
             }
             "list_edges" => {
                 let kind: Option<String> = opt(a, "kind")?;
@@ -444,14 +533,21 @@ impl Server {
                 let m = self.model()?;
                 // Show sketches that are not yet consumed by a feature (like SOLIDWORKS hides used sketches).
                 let consumed: Vec<String> = m.part.features.iter().flat_map(|f| f.kind.references()).collect();
-                let lines: Vec<_> = if show_sk {
+                let mut lines: Vec<_> = if show_sk {
                     m.out.sketches.iter().filter(|s| !consumed.contains(&s.feature)).flat_map(|s| s.polylines()).collect()
                 } else {
                     vec![]
                 };
+                let half = m.out.mass.map(|mp| {
+                    let d = [0, 1, 2].map(|k| mp.bbox_max[k] - mp.bbox_min[k]);
+                    (d[0].max(d[1]).max(d[2]) * 0.6).max(10.0)
+                }).unwrap_or(40.0);
+                for (_, pl) in &m.out.ref_planes {
+                    lines.push((plane_outline(pl, half), true));
+                }
                 let png = rw_render::render_png(
                     m.out.mesh.as_ref(),
-                    &rw_render::RenderOptions { width: w, height: h, view, edges, face_labels: labels, edge_labels, sketches: &lines },
+                    &rw_render::RenderOptions { width: w, height: h, view, edges, face_labels: labels, edge_labels, sketches: &lines, tri_colors: &[] },
                 );
                 Ok(Reply::TextAndImage(summary(m, json!({"view": format!("{view:?}")})), png))
             }
@@ -503,12 +599,14 @@ impl Server {
     }
 }
 
-const INSTRUCTIONS: &str = "RustWorks is a parametric 3D CAD system (like SOLIDWORKS) on the OpenCASCADE kernel. Workflow: new_part → create_sketch on a plane \
-(front/top/right, offset, or {face:N}) with geometry + constraints → extrude/revolve/loft (boss or cut) → hole/patterns/mirror → fillet/chamfer \
-(pick edges with list_edges or render edge_labels) → shell → render to look at it → \
-edit_feature / set_parameters to iterate → export (step/stl). Units are mm, world is Y-up. Define key dimensions as parameters and reference them \
-by name in expressions so the design stays editable. After significant changes call render (use face_labels:true when you need a face index). \
-Every response includes rebuild errors/warnings; fix errors before continuing.";
+const INSTRUCTIONS: &str = "RustWorks is a parametric 3D CAD system (like SOLIDWORKS) on the OpenCASCADE kernel. Part workflow: new_part → create_sketch on a plane \
+(front/top/right, offset, a reference plane from the `plane` tool, or {face:N}) with geometry (lines, arcs, circles, splines, ...) + constraints; refine sketches with \
+edit_sketch (trim, fillet_corners, offset) → extrude/revolve/loft/sweep (boss or cut) → hole/patterns/mirror → fillet/chamfer (pick edges with list_edges \
+or render edge_labels) → draft/shell → render to look at it → edit_feature / set_parameters to iterate → export (step/stl). \
+Assembly workflow: build each part file, then new_assembly → add_component (first one is grounded) → add_mate between faces (list_faces with component, or \
+render) → check_interference → render/export. Units are mm, world is Y-up. Define key dimensions as parameters and reference them by name in expressions \
+so the design stays editable. After significant changes call render (face_labels:true when you need a face index). Every response includes rebuild \
+errors/warnings; fix errors before continuing.";
 
 fn req<T: DeserializeOwned>(a: &J, k: &str) -> Result<T> {
     let v = a.get(k).ok_or_else(|| anyhow!("missing argument `{k}`"))?;
@@ -588,7 +686,24 @@ fn sketch_info(m: &Model, fid: &str) -> Result<J> {
     })))
 }
 
+/// Square outline of a reference plane, centered on its origin.
+pub fn plane_outline(pl: &rw_core::kernel::Plane, half: f64) -> Vec<[f32; 3]> {
+    [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0], [-1.0, -1.0]]
+        .iter()
+        .map(|c: &[f64; 2]| pl.to3d([c[0] * half, c[1] * half]).map(|v| v as f32))
+        .collect()
+}
+
 fn plane_arg(m: &Model, v: &J) -> Result<PlaneRef> {
+    if let Some(s) = v.as_str() {
+        if !matches!(s, "front" | "top" | "right") {
+            let f = m.part.feature(s).ok_or_else(|| anyhow!("no plane `{s}` (use front/top/right or a reference plane id/name)"))?;
+            if !matches!(f.kind, FeatureKind::Plane(_)) {
+                bail!("`{s}` is not a reference plane");
+            }
+            return Ok(PlaneRef::Feature(f.id.clone()));
+        }
+    }
     if let Some(n) = v.get("face") {
         let idx = n.as_u64().ok_or_else(|| anyhow!("face must be an integer"))? as usize;
         let mesh = m.out.mesh.as_ref().ok_or_else(|| anyhow!("no body yet; cannot sketch on a face"))?;
@@ -651,6 +766,16 @@ fn add_shapes(sk: &mut Sketch, shapes: &[J]) -> Result<J> {
             "slot" => {
                 sk.add_slot(pt(s, "from")?, pt(s, "to")?, f(s, "radius")?);
             }
+            "spline" => {
+                let mut pts: Vec<[f64; 2]> = serde_json::from_value(s.get("points").cloned().unwrap_or(J::Null))?;
+                if pts.len() < 2 {
+                    bail!("spline needs at least 2 points");
+                }
+                if s.get("closed").and_then(|c| c.as_bool()).unwrap_or(false) && pts.first() != pts.last() {
+                    pts.push(pts[0]);
+                }
+                sk.add_spline(&pts, cons);
+            }
             "point" => {
                 let p = pt(s, "at")?;
                 sk.point_at(p[0], p[1], 1e-9);
@@ -663,33 +788,7 @@ fn add_shapes(sk: &mut Sketch, shapes: &[J]) -> Result<J> {
     Ok(J::Array(out))
 }
 
-/// Removes entities, plus anything that references them.
-fn remove_entities(sk: &mut Sketch, ids: &[String]) {
-    if ids.is_empty() {
-        return;
-    }
-    let mut doomed: Vec<String> = ids.to_vec();
-    // Lines/arcs/circles using a removed point go too.
-    for e in &sk.entities {
-        let refs: Vec<&String> = match e {
-            Entity::Line { start, end, .. } => vec![start, end],
-            Entity::Circle { center, .. } => vec![center],
-            Entity::Arc { center, start, end, .. } => vec![center, start, end],
-            Entity::Point { .. } => vec![],
-        };
-        if refs.iter().any(|r| doomed.contains(r)) {
-            doomed.push(e.id().to_string());
-        }
-    }
-    sk.entities.retain(|e| !doomed.contains(&e.id().to_string()));
-    sk.constraints.retain(|c| {
-        let v = serde_json::to_value(c).unwrap_or(J::Null);
-        !v.as_object().map(|o| o.values().any(|x| x.as_str().is_some_and(|s| doomed.iter().any(|d| d == s)))).unwrap_or(false)
-    });
-    // Drop orphan points no longer used by anything (keep explicitly created points).
-}
-
-fn merge_patch(target: &mut J, patch: &J) {
+pub fn merge_patch(target: &mut J, patch: &J) {
     match patch {
         J::Object(p) => {
             if !target.is_object() {

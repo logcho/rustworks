@@ -45,6 +45,8 @@ pub struct RenderOptions<'a> {
     pub edge_labels: bool,
     /// Sketch polylines: (points, construction)
     pub sketches: &'a [(Vec<[f32; 3]>, bool)],
+    /// Optional per-triangle base colors (e.g. one per assembly component).
+    pub tri_colors: &'a [[f32; 3]],
 }
 
 struct Cam {
@@ -170,7 +172,8 @@ pub fn render_rgba(mesh: Option<&Mesh>, o: &RenderOptions) -> Vec<u8> {
     let base = [0.70f32, 0.75, 0.82];
     if let Some(m) = mesh {
         let sp: Vec<[f64; 3]> = m.positions.iter().map(|p| cam.project(*p)).collect();
-        for t in m.indices.chunks(3) {
+        for (ti, t) in m.indices.chunks(3).enumerate() {
+            let base = o.tri_colors.get(ti).copied().unwrap_or(base);
             let (ia, ib, ic) = (t[0] as usize, t[1] as usize, t[2] as usize);
             let (a, b, c) = (sp[ia], sp[ib], sp[ic]);
             let area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);

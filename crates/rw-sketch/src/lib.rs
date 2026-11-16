@@ -5,9 +5,10 @@
 pub mod expr;
 pub mod profile;
 mod solver;
+mod tools;
 
 pub use expr::{ExprError, Scope, Value};
-pub use profile::{Loop, Region, Segment};
+pub use profile::{spline_poles, Loop, Region, Segment};
 pub use solver::{SolveReport, SolveStatus};
 
 use serde::{Deserialize, Serialize};
@@ -46,6 +47,14 @@ pub enum Entity {
         #[serde(default, skip_serializing_if = "is_false")]
         construction: bool,
     },
+    /// Smooth curve through the listed points (Catmull–Rom, exactly cubic
+    /// B-spline in the kernel). Closed when the first and last point coincide.
+    Spline {
+        id: String,
+        points: Vec<String>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        construction: bool,
+    },
 }
 
 pub(crate) fn is_false(b: &bool) -> bool {
@@ -58,7 +67,8 @@ impl Entity {
             Entity::Point { id, .. }
             | Entity::Line { id, .. }
             | Entity::Circle { id, .. }
-            | Entity::Arc { id, .. } => id,
+            | Entity::Arc { id, .. }
+            | Entity::Spline { id, .. } => id,
         }
     }
     pub fn is_construction(&self) -> bool {
@@ -66,7 +76,36 @@ impl Entity {
             Entity::Point { .. } => true,
             Entity::Line { construction, .. }
             | Entity::Circle { construction, .. }
-            | Entity::Arc { construction, .. } => *construction,
+            | Entity::Arc { construction, .. }
+            | Entity::Spline { construction, .. } => *construction,
+        }
+    }
+    /// Ids of the points this entity is built on.
+    pub fn point_refs(&self) -> Vec<&String> {
+        match self {
+            Entity::Point { .. } => vec![],
+            Entity::Line { start, end, .. } => vec![start, end],
+            Entity::Circle { center, .. } => vec![center],
+            Entity::Arc { center, start, end, .. } => vec![center, start, end],
+            Entity::Spline { points, .. } => points.iter().collect(),
+        }
+    }
+}
+
+impl Constraint {
+    /// Entity ids referenced by this constraint.
+    pub fn refs(&self) -> Vec<&String> {
+        use Constraint::*;
+        match self {
+            Coincident { a, b } | Parallel { a, b } | Perpendicular { a, b } | Equal { a, b } | Tangent { a, b } | Concentric { a, b } => vec![a, b],
+            HorizontalDistance { a, b, .. } | VerticalDistance { a, b, .. } | Angle { a, b, .. } => vec![a, b],
+            Horizontal { line } | Vertical { line } => vec![line],
+            Distance { a, b, .. } => std::iter::once(a).chain(b.iter()).collect(),
+            Radius { entity, .. } | Diameter { entity, .. } => vec![entity],
+            PointOnLine { point, line } | Midpoint { point, line } => vec![point, line],
+            PointOnCircle { point, circle } => vec![point, circle],
+            Symmetric { a, b, about } => vec![a, b, about],
+            Fix { point, .. } => vec![point],
         }
     }
 }
@@ -190,6 +229,48 @@ impl Sketch {
         id
     }
 
+    /// Spline through `pts`; closed when the first and last points coincide.
+    pub fn add_spline(&mut self, pts: &[[f64; 2]], construction: bool) -> String {
+        let ids: Vec<String> = pts.iter().map(|p| self.point_at(p[0], p[1], 1e-9)).collect();
+        let id = self.fresh_id("s");
+        self.entities.push(Entity::Spline { id: id.clone(), points: ids, construction });
+        id
+    }
+
+    /// Removes entities plus everything built on them (entities using a removed
+    /// point, constraints referencing any removed id) and endpoints left unused.
+    pub fn remove(&mut self, ids: &[String]) {
+        let mut doomed: Vec<String> = ids.to_vec();
+        for e in &self.entities {
+            if e.point_refs().iter().any(|r| doomed.contains(r)) {
+                doomed.push(e.id().to_string());
+            }
+        }
+        let loose: Vec<String> = self
+            .entities
+            .iter()
+            .filter(|e| doomed.iter().any(|d| d == e.id()))
+            .flat_map(|e| e.point_refs().into_iter().cloned())
+            .collect();
+        self.entities.retain(|e| !doomed.iter().any(|d| d == e.id()));
+        self.constraints.retain(|c| !c.refs().iter().any(|r| doomed.contains(r)));
+        self.prune_points(&loose);
+    }
+
+    /// Deletes those `candidates` points that no entity or constraint uses any more.
+    pub(crate) fn prune_points(&mut self, candidates: &[String]) {
+        let used: std::collections::HashSet<String> = self
+            .entities
+            .iter()
+            .flat_map(|e| e.point_refs().into_iter().cloned())
+            .chain(self.constraints.iter().flat_map(|c| c.refs().into_iter().cloned()))
+            .collect();
+        self.entities.retain(|e| match e {
+            Entity::Point { id, .. } => used.contains(id) || !candidates.contains(id),
+            _ => true,
+        });
+    }
+
     /// Axis-aligned rectangle with horizontal/vertical constraints. Returns the 4 line ids
     /// (bottom, right, top, left).
     pub fn add_rectangle(&mut self, a: [f64; 2], b: [f64; 2]) -> Vec<String> {
@@ -247,6 +328,12 @@ impl Sketch {
     /// Extract closed regions (outer loop + holes) from non-construction geometry.
     pub fn regions(&self) -> Result<Vec<Region>, SketchError> {
         profile::regions(self)
+    }
+
+    /// Connected chains of non-construction geometry (open or closed), in
+    /// drawing order — used as sweep paths.
+    pub fn paths(&self) -> Result<Vec<Loop>, SketchError> {
+        profile::paths(self)
     }
 
     pub(crate) fn index(&self) -> HashMap<&str, usize> {

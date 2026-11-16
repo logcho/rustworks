@@ -1,0 +1,59 @@
+{
+  "format": "rustworks-part/1",
+  "name": "pin",
+  "units": "mm",
+  "parameters": {},
+  "features": [
+    {
+      "id": "f1",
+      "name": "Sketch1",
+      "type": "sketch",
+      "plane": "top",
+      "entities": [
+        {
+          "type": "point",
+          "id": "p1",
+          "x": 0.0,
+          "y": 0.0
+        },
+        {
+          "type": "circle",
+          "id": "c2",
+          "center": "p1",
+          "radius": 4.9
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f2",
+      "name": "Extrude1",
+      "type": "extrude",
+      "sketch": "f1",
+      "depth": 80.0,
+      "op": "boss"
+    },
+    {
+      "id": "f3",
+      "name": "Chamfer1",
+      "type": "chamfer",
+      "edges": [
+        {
+          "at": [
+            0.0,
+            80.0,
+            -4.9
+          ],
+          "kind": "circle",
+          "length": 15.3876,
+          "rel": [
+            0.5,
+            1.0,
+            0.0
+          ]
+        }
+      ],
+      "distance": 0.8
+    }
+  ]
+}

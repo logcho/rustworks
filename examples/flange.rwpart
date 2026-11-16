@@ -179,6 +179,22 @@
         }
       ],
       "distance": 1.5
+    },
+    {
+      "id": "f10",
+      "name": "Extrude1",
+      "type": "extrude",
+      "sketch": "f3",
+      "depth": 10.0,
+      "op": "boss"
+    },
+    {
+      "id": "f11",
+      "name": "Sketch1",
+      "type": "sketch",
+      "plane": "front",
+      "entities": [],
+      "constraints": []
     }
   ]
 }

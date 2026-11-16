@@ -102,6 +102,10 @@ pub enum FeatureKind {
     Shell(Shell),
     Loft(Loft),
     Import(Import),
+    /// Reference plane (construction geometry other features can sketch on).
+    Plane(RefPlane),
+    Sweep(Sweep),
+    Draft(Draft),
 }
 
 impl FeatureKind {
@@ -119,6 +123,9 @@ impl FeatureKind {
             FeatureKind::Shell(_) => "shell",
             FeatureKind::Loft(_) => "loft",
             FeatureKind::Import(_) => "import",
+            FeatureKind::Plane(_) => "plane",
+            FeatureKind::Sweep(_) => "sweep",
+            FeatureKind::Draft(_) => "draft",
         }
     }
     pub fn references(&self) -> Vec<String> {
@@ -127,8 +134,13 @@ impl FeatureKind {
             FeatureKind::Revolve(r) => vec![r.sketch.clone()],
             FeatureKind::LinearPattern(p) => p.features.clone(),
             FeatureKind::CircularPattern(p) => p.features.clone(),
-            FeatureKind::Mirror(m) => m.features.clone(),
             FeatureKind::Loft(l) => l.sketches.clone(),
+            FeatureKind::Sweep(s) => vec![s.profile.clone(), s.path.clone()],
+            FeatureKind::Sketch(s) => s.plane.feature().into_iter().collect(),
+            FeatureKind::Hole(h) => h.plane.feature().into_iter().collect(),
+            FeatureKind::Mirror(m) => m.features.iter().cloned().chain(m.plane.feature()).collect(),
+            FeatureKind::Plane(p) => p.base.as_ref().and_then(|b| b.feature()).into_iter().collect(),
+            FeatureKind::Draft(d) => d.neutral.feature().into_iter().collect(),
             _ => vec![],
         }
     }
@@ -159,6 +171,18 @@ pub enum PlaneRef {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         x_dir: Option<[f64; 3]>,
     },
+    /// A reference-plane feature, by id.
+    Feature(String),
+}
+
+impl PlaneRef {
+    /// The reference-plane feature this plane depends on, if any.
+    pub fn feature(&self) -> Option<String> {
+        match self {
+            PlaneRef::Feature(id) => Some(id.clone()),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -311,6 +335,10 @@ pub enum EdgeRef {
         kind: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         length: Option<f64>,
+        /// Position within the body's bounding box (0..1 per axis), used to
+        /// tell identical edges apart after the part is resized.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rel: Option<[f64; 3]>,
     },
 }
 
@@ -370,4 +398,48 @@ pub struct Import {
     pub path: String,
     #[serde(default)]
     pub op: Op,
+}
+
+/// Reference plane: `base` offset along its normal and optionally tilted by
+/// `angle` degrees about the base plane's in-plane X axis, or a plane through
+/// three points.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct RefPlane {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<PlaneRef>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub offset: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub angle: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub points: Option<[[f64; 3]; 3]>,
+    /// Reverse the normal.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub flip: bool,
+}
+
+fn is_zero(v: &Value) -> bool {
+    *v == Value::Num(0.0)
+}
+
+/// Swept boss/cut: the profile sketch's regions moved along the path sketch's
+/// (single) chain of lines/arcs/splines.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Sweep {
+    pub profile: String,
+    pub path: String,
+    #[serde(default)]
+    pub op: Op,
+}
+
+/// Draft: tilts the faces nearest to `faces` points by `angle` degrees,
+/// hinged at the neutral plane, opening along its normal (or opposite when
+/// `reverse`).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Draft {
+    pub faces: Vec<[f64; 3]>,
+    pub neutral: PlaneRef,
+    pub angle: Value,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reverse: bool,
 }

@@ -1,6 +1,7 @@
-//! Interactive sketch mode: draw lines, rectangles, circles, arcs and points
-//! with the mouse on the sketch plane, with point snapping, automatic
-//! horizontal/vertical relations, point dragging and smart dimensions.
+//! Interactive sketch mode: draw lines, rectangles, circles, arcs, splines and
+//! points with the mouse on the sketch plane, with point snapping, automatic
+//! horizontal/vertical relations, point dragging, smart dimensions, and the
+//! trim / offset / sketch-fillet tools.
 
 use crate::viewport::Camera;
 use egui::{Color32, Pos2, Stroke};
@@ -17,10 +18,14 @@ pub enum Tool {
     Arc,
     Point,
     Dimension,
+    Spline,
+    Trim,
+    Offset,
+    Fillet,
 }
 
 impl Tool {
-    pub const ALL: [(Tool, &'static str, &'static str); 7] = [
+    pub const ALL: [(Tool, &'static str, &'static str); 11] = [
         (Tool::Select, "Select", "Select / drag points (S)"),
         (Tool::Line, "Line", "Chain of lines; double-click, Esc or right-click ends (L)"),
         (Tool::Rectangle, "Rect", "Corner rectangle: two clicks (R)"),
@@ -28,6 +33,10 @@ impl Tool {
         (Tool::Arc, "Arc", "Center, start, end (counter-clockwise) (A)"),
         (Tool::Point, "Point", "Sketch point (P)"),
         (Tool::Dimension, "Dimension", "Click a line (length), circle/arc (diameter/radius) or two points (distance) (D)"),
+        (Tool::Spline, "Spline", "Click points; double-click or Enter finishes, clicking the first point closes it (N)"),
+        (Tool::Trim, "Trim", "Click the piece of a curve to remove up to its nearest intersections (T)"),
+        (Tool::Offset, "Offset", "Click a curve to offset its connected chain by the distance (Shift: other side) (O)"),
+        (Tool::Fillet, "Fillet", "Click a corner point where two lines meet to round it with the radius"),
     ];
 }
 
@@ -39,6 +48,8 @@ pub struct Sketcher {
     drag: Option<String>,
     pub hover_point: Option<String>,
     pub message: Option<String>,
+    pub fillet_radius: f64,
+    pub offset_dist: f64,
 }
 
 /// Snap radius in screen pixels.
@@ -46,7 +57,17 @@ const SNAP_PX: f32 = 9.0;
 
 impl Sketcher {
     pub fn new(feature: String) -> Sketcher {
-        Sketcher { feature, tool: Tool::Line, clicks: vec![], dim_first: None, drag: None, hover_point: None, message: None }
+        Sketcher {
+            feature,
+            tool: Tool::Line,
+            clicks: vec![],
+            dim_first: None,
+            drag: None,
+            hover_point: None,
+            message: None,
+            fillet_radius: 3.0,
+            offset_dist: 2.0,
+        }
     }
 
     pub fn cancel(&mut self) {
@@ -139,6 +160,9 @@ impl Sketcher {
                 (egui::Key::P, Tool::Point),
                 (egui::Key::D, Tool::Dimension),
                 (egui::Key::S, Tool::Select),
+                (egui::Key::N, Tool::Spline),
+                (egui::Key::T, Tool::Trim),
+                (egui::Key::O, Tool::Offset),
             ] {
                 if i.key_pressed(k) && !i.modifiers.any() {
                     self.tool = t;
@@ -152,7 +176,89 @@ impl Sketcher {
             // keyboard focus is in a text field; ignore stray shortcut changes
         }
 
+        let shift = ui.input(|i| i.modifiers.shift);
+        let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+        let blue = Stroke::new(1.5, Color32::from_rgb(0, 110, 255));
         match self.tool {
+            Tool::Spline => {
+                let mut pts = self.clicks.clone();
+                if let Some(p) = snapped {
+                    pts.push(p);
+                }
+                if pts.len() >= 2 {
+                    let poles = rw_core::sketch::spline_poles(&pts, false);
+                    let n = (poles.len() - 1) / 3;
+                    let line: Vec<Pos2> = (0..=n * 16).filter_map(|k| to_screen(rw_core::sketch::profile::bezier_point(&poles, k as f64 / 16.0))).collect();
+                    painter.add(egui::Shape::line(line, blue));
+                }
+                let closing = self.clicks.len() >= 3 && snapped.is_some_and(|p| (p[0] - self.clicks[0][0]).hypot(p[1] - self.clicks[0][1]) < 1e-9);
+                let finish = (double || enter) && self.clicks.len() >= 2;
+                if finish || (clicked && closing) {
+                    let mut pts = self.clicks.clone();
+                    if closing {
+                        pts.push(pts[0]);
+                    }
+                    pts.dedup_by(|a, b| (a[0] - b[0]).hypot(a[1] - b[1]) < 1e-9 && !closing);
+                    let mut sk = sketch.clone();
+                    sk.add_spline(&pts, false);
+                    out = Some(sk);
+                    self.clicks.clear();
+                } else if clicked && !double {
+                    if let Some(p) = snapped {
+                        self.clicks.push(p);
+                    }
+                }
+            }
+            Tool::Trim => {
+                let hit = hover.and_then(|hp| pick_entity(sketch, hp, &to_screen));
+                if let Some(id) = &hit {
+                    highlight(&painter, sketch, id, &to_screen);
+                }
+                if clicked {
+                    if let (Some(id), Some(p)) = (hit, on_plane) {
+                        let mut sk = sketch.clone();
+                        match sk.trim(&id, p) {
+                            Ok(_) => out = Some(sk),
+                            Err(e) => self.message = Some(e.to_string()),
+                        }
+                    }
+                }
+            }
+            Tool::Offset => {
+                let hit = hover.and_then(|hp| pick_entity(sketch, hp, &to_screen));
+                if let Some(id) = &hit {
+                    for e in connected_chain(sketch, id) {
+                        highlight(&painter, sketch, &e, &to_screen);
+                    }
+                }
+                if clicked {
+                    if let Some(id) = hit {
+                        let chain = connected_chain(sketch, &id);
+                        let mut sk = sketch.clone();
+                        let d = if shift { -self.offset_dist } else { self.offset_dist };
+                        match sk.offset(&chain, d) {
+                            Ok(_) => out = Some(sk),
+                            Err(e) => self.message = Some(e.to_string()),
+                        }
+                    }
+                }
+            }
+            Tool::Fillet => {
+                if let Some(pid) = &self.hover_point {
+                    if let Some(s) = sketch.point_xy(pid).and_then(to_screen) {
+                        painter.circle_stroke(s, 8.0, Stroke::new(2.0, Color32::from_rgb(255, 140, 0)));
+                    }
+                }
+                if clicked {
+                    if let Some(pid) = self.hover_point.clone() {
+                        let mut sk = sketch.clone();
+                        match sk.fillet_corner(&pid, self.fillet_radius) {
+                            Ok(_) => out = Some(sk),
+                            Err(e) => self.message = Some(e.to_string()),
+                        }
+                    }
+                }
+            }
             Tool::Select => {
                 if resp.drag_started_by(egui::PointerButton::Primary) {
                     self.drag = self.hover_point.clone();
@@ -400,38 +506,50 @@ impl Sketcher {
 
 /// Removes an entity, anything built on it, and constraints referencing it.
 pub fn remove_entity(sk: &mut Sketch, id: &str) {
-    let mut doomed = vec![id.to_string()];
-    for e in &sk.entities {
-        let refs: Vec<&String> = match e {
-            Entity::Line { start, end, .. } => vec![start, end],
-            Entity::Circle { center, .. } => vec![center],
-            Entity::Arc { center, start, end, .. } => vec![center, start, end],
-            Entity::Point { .. } => vec![],
-        };
-        if refs.iter().any(|r| *r == id) {
-            doomed.push(e.id().to_string());
+    sk.remove(&[id.to_string()]);
+}
+
+/// The entity plus all non-construction lines/arcs connected to it end-to-end.
+fn connected_chain(sk: &Sketch, id: &str) -> Vec<String> {
+    let ends = |e: &Entity| -> Option<[[f64; 2]; 2]> {
+        match e {
+            Entity::Line { start, end, .. } | Entity::Arc { start, end, .. } => Some([sk.point_xy(start)?, sk.point_xy(end)?]),
+            _ => None,
         }
+    };
+    let Some(first) = sk.entity(id) else { return vec![] };
+    if ends(first).is_none() {
+        return vec![id.to_string()];
     }
-    sk.entities.retain(|e| !doomed.iter().any(|d| d == e.id()));
-    sk.constraints.retain(|c| {
-        let v = serde_json::to_value(c).unwrap_or_default();
-        !v.as_object().is_some_and(|o| o.values().any(|x| x.as_str().is_some_and(|s| doomed.iter().any(|d| d == s))))
-    });
-    // Drop points no longer used by any curve (except standalone sketch points we just kept).
-    let used: Vec<String> = sk
-        .entities
-        .iter()
-        .flat_map(|e| match e {
-            Entity::Line { start, end, .. } => vec![start.clone(), end.clone()],
-            Entity::Circle { center, .. } => vec![center.clone()],
-            Entity::Arc { center, start, end, .. } => vec![center.clone(), start.clone(), end.clone()],
-            Entity::Point { .. } => vec![],
-        })
-        .collect();
-    let removed_curve = doomed.len() > 1 || !id.starts_with('p');
-    if removed_curve {
-        sk.entities.retain(|e| !matches!(e, Entity::Point { id, .. } if !used.contains(id)));
+    let mut chain = vec![id.to_string()];
+    let mut i = 0;
+    while i < chain.len() {
+        let cur = ends(sk.entity(&chain[i]).unwrap()).unwrap();
+        for e in &sk.entities {
+            if e.is_construction() || chain.iter().any(|c| c == e.id()) {
+                continue;
+            }
+            if let Some(en) = ends(e) {
+                let touch = cur.iter().any(|a| en.iter().any(|b| (a[0] - b[0]).hypot(a[1] - b[1]) < 1e-6));
+                if touch {
+                    chain.push(e.id().to_string());
+                }
+            }
+        }
+        i += 1;
     }
+    chain
+}
+
+fn spline_screen(sk: &Sketch, points: &[String], to_screen: &dyn Fn([f64; 2]) -> Option<Pos2>) -> Vec<Pos2> {
+    let xy: Vec<[f64; 2]> = points.iter().filter_map(|p| sk.point_xy(p)).collect();
+    if xy.len() < 2 {
+        return vec![];
+    }
+    let closed = points.len() > 3 && points.first() == points.last();
+    let poles = rw_core::sketch::spline_poles(&xy, closed);
+    let n = (poles.len() - 1) / 3;
+    (0..=n * 16).filter_map(|k| to_screen(rw_core::sketch::profile::bezier_point(&poles, k as f64 / 16.0))).collect()
 }
 
 /// Snap to a horizontal/vertical alignment with the previous point (within 3°),
@@ -519,6 +637,11 @@ fn pick_entity(sk: &Sketch, hp: Pos2, to_screen: &dyn Fn([f64; 2]) -> Option<Pos
                     consider(d, id);
                 }
             }
+            Entity::Spline { id, points, .. } => {
+                let pts = spline_screen(sk, points, to_screen);
+                let d = pts.windows(2).map(|w| seg_dist(hp, w[0], w[1])).fold(f32::INFINITY, f32::min);
+                consider(d, id);
+            }
             Entity::Point { .. } => {}
         }
     }
@@ -544,10 +667,25 @@ fn highlight(painter: &egui::Painter, sk: &Sketch, id: &str, to_screen: &dyn Fn(
                 painter.add(egui::Shape::closed_line(pts, st));
             }
         }
-        Some(Entity::Arc { center, start, .. }) => {
-            if let (Some(c), Some(s)) = (sk.point_xy(center).and_then(to_screen), sk.point_xy(start).and_then(to_screen)) {
-                painter.circle_stroke(c, c.distance(s), Stroke::new(1.0, Color32::from_rgb(255, 140, 0)));
+        Some(Entity::Arc { center, start, end, .. }) => {
+            if let (Some(c), Some(s0), Some(e0)) = (sk.point_xy(center), sk.point_xy(start), sk.point_xy(end)) {
+                let r = (s0[0] - c[0]).hypot(s0[1] - c[1]);
+                let t0 = (s0[1] - c[1]).atan2(s0[0] - c[0]);
+                let mut sw = ((e0[1] - c[1]).atan2(e0[0] - c[0]) - t0).rem_euclid(std::f64::consts::TAU);
+                if sw < 1e-9 {
+                    sw = std::f64::consts::TAU;
+                }
+                let pts: Vec<Pos2> = (0..=32)
+                    .filter_map(|i| {
+                        let t = t0 + sw * i as f64 / 32.0;
+                        to_screen([c[0] + r * t.cos(), c[1] + r * t.sin()])
+                    })
+                    .collect();
+                painter.add(egui::Shape::line(pts, st));
             }
+        }
+        Some(Entity::Spline { points, .. }) => {
+            painter.add(egui::Shape::line(spline_screen(sk, points, to_screen), st));
         }
         _ => {}
     }

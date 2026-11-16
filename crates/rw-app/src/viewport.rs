@@ -17,6 +17,8 @@ struct Vertex {
     pos: [f32; 3],
     nor: [f32; 3],
     face: u32,
+    /// Base color; negative red = use the default material color.
+    col: [f32; 3],
 }
 
 #[repr(C)]
@@ -41,13 +43,14 @@ const SHADER: &str = r#"
 struct U { vp: mat4x4<f32>, light: vec4<f32>, eye: vec4<f32>, base: vec4<f32>, hl: vec4<u32> };
 @group(0) @binding(0) var<uniform> u: U;
 
-struct MO { @builtin(position) pos: vec4<f32>, @location(0) n: vec3<f32>, @location(1) @interpolate(flat) face: u32 };
+struct MO { @builtin(position) pos: vec4<f32>, @location(0) n: vec3<f32>, @location(1) @interpolate(flat) face: u32, @location(2) col: vec3<f32> };
 
-@vertex fn vs_mesh(@location(0) p: vec3<f32>, @location(1) n: vec3<f32>, @location(2) face: u32) -> MO {
+@vertex fn vs_mesh(@location(0) p: vec3<f32>, @location(1) n: vec3<f32>, @location(2) face: u32, @location(3) col: vec3<f32>) -> MO {
     var o: MO;
     o.pos = u.vp * vec4<f32>(p, 1.0);
     o.n = n;
     o.face = face;
+    o.col = col;
     return o;
 }
 
@@ -61,6 +64,7 @@ struct MO { @builtin(position) pos: vec4<f32>, @location(0) n: vec3<f32>, @locat
     // soft hemispheric ambient
     let amb = 0.30 + 0.10 * n.y;
     var c = u.base.rgb;
+    if (v.col.x >= 0.0) { c = v.col; }
     if (v.face == u.hl.y) { c = mix(c, vec3<f32>(0.25, 0.55, 1.0), 0.65); }
     else if (v.face == u.hl.x) { c = mix(c, vec3<f32>(1.0, 0.72, 0.25), 0.45); }
     let rgb = c * (amb + 0.68 * diff) + vec3<f32>(spec);
@@ -285,7 +289,7 @@ impl Viewport {
                 buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<Vertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Uint32],
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Uint32, 3 => Float32x3],
                 })],
             },
             fragment: Some(wgpu::FragmentState {
@@ -349,6 +353,11 @@ impl Viewport {
     }
 
     pub fn set_mesh(&mut self, dev: &wgpu::Device, mesh: Option<Arc<Mesh>>) {
+        self.set_mesh_colored(dev, mesh, &[]);
+    }
+
+    /// Like `set_mesh`, with optional per-triangle base colors.
+    pub fn set_mesh_colored(&mut self, dev: &wgpu::Device, mesh: Option<Arc<Mesh>>, tri_colors: &[[f32; 3]]) {
         self.vbuf = None;
         self.ebuf = None;
         self.bounds = None;
@@ -356,13 +365,17 @@ impl Viewport {
             // Per-triangle face ids need unshared vertices only where faces meet;
             // our mesh already has per-face vertices, so take face from the triangle.
             let mut vface = vec![u32::MAX; m.positions.len()];
+            let mut vcol = vec![[-1.0f32; 3]; m.positions.len()];
             for (t, tri) in m.indices.chunks(3).enumerate() {
                 for &i in tri {
                     vface[i as usize] = m.tri_face[t];
+                    if let Some(c) = tri_colors.get(t) {
+                        vcol[i as usize] = *c;
+                    }
                 }
             }
             let verts: Vec<Vertex> = (0..m.positions.len())
-                .map(|i| Vertex { pos: m.positions[i], nor: m.normals[i], face: vface[i] })
+                .map(|i| Vertex { pos: m.positions[i], nor: m.normals[i], face: vface[i], col: vcol[i] })
                 .collect();
             if !verts.is_empty() {
                 let vb = dev.create_buffer_init(&wgpu::util::BufferInitDescriptor {

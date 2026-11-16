@@ -4,6 +4,7 @@
 #![allow(deprecated)] // egui 0.37 deprecates Id::new; migrate to IdSalt later
 
 mod app;
+mod asm_ui;
 mod sketcher;
 mod viewport;
 mod worker;

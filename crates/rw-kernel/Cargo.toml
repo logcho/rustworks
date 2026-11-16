@@ -8,6 +8,9 @@ default = ["occt"]
 occt = ["dep:opencascade-sys", "dep:cxx"]
 truck = ["dep:truck-modeling", "dep:truck-shapeops", "dep:truck-meshalgo", "dep:truck-stepio", "dep:truck-topology"]
 
+[build-dependencies]
+cxx-build = "1.0.205"
+
 [dependencies]
 opencascade-sys = { version = "0.3", optional = true, features = ["builtin"] }
 cxx = { version = "1", optional = true }

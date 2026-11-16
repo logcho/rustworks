@@ -1,0 +1,159 @@
+{
+  "format": "rustworks-assembly/1",
+  "name": "demo",
+  "components": [
+    {
+      "id": "c1",
+      "name": "base<1>",
+      "path": "base.rwpart",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "id": "c2",
+      "name": "pin<1>",
+      "path": "pin.rwpart",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "id": "c3",
+      "name": "cap",
+      "path": "base.rwpart",
+      "position": [
+        0.0,
+        70.0,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        180.0
+      ]
+    }
+  ],
+  "mates": [
+    {
+      "id": "m1",
+      "name": "Concentric1",
+      "type": "concentric",
+      "a": {
+        "component": "c1",
+        "face": [
+          4.6281,
+          11.6667,
+          -1.8171
+        ]
+      },
+      "b": {
+        "component": "c2",
+        "face": [
+          4.0143,
+          32.8,
+          -2.7838
+        ]
+      }
+    },
+    {
+      "id": "m2",
+      "name": "Coincident1",
+      "type": "coincident",
+      "a": {
+        "component": "c1",
+        "face": [
+          0.0,
+          0.0,
+          -18.3333
+        ]
+      },
+      "b": {
+        "component": "c2",
+        "face": [
+          1.2889,
+          0.0,
+          -0.5515
+        ]
+      },
+      "aligned": true
+    },
+    {
+      "id": "m3",
+      "name": "Coincident2",
+      "type": "coincident",
+      "a": {
+        "component": "c1",
+        "face": [
+          6.3525,
+          35.0,
+          -3.605
+        ]
+      },
+      "b": {
+        "component": "c3",
+        "face": [
+          6.3525,
+          35.0,
+          -3.605
+        ]
+      }
+    },
+    {
+      "id": "m4",
+      "name": "Concentric2",
+      "type": "concentric",
+      "a": {
+        "component": "c1",
+        "face": [
+          4.6281,
+          11.6667,
+          -1.8171
+        ]
+      },
+      "b": {
+        "component": "c3",
+        "face": [
+          4.6281,
+          11.6667,
+          -1.8171
+        ]
+      }
+    },
+    {
+      "id": "m5",
+      "name": "Parallel1",
+      "type": "parallel",
+      "a": {
+        "component": "c1",
+        "face": [
+          40.0,
+          3.3333,
+          6.3333
+        ]
+      },
+      "b": {
+        "component": "c3",
+        "face": [
+          40.0,
+          3.3333,
+          6.3333
+        ]
+      }
+    }
+  ]
+}

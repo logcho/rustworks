@@ -3007,6 +3007,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cxx",
+ "cxx-build",
  "opencascade-sys",
  "rw-sketch",
  "serde",
